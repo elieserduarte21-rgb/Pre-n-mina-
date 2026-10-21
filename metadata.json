@@ -1,0 +1,8 @@
+{
+  "name": "Prenómina de Salario",
+  "description": "Sistema y base de cálculo para la gestión de salarios mensuales, percepciones, deducciones y liquidación de nómina de trabajadores.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
