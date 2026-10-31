@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { 
   EmployeeWithPrenominaCalc, 
+  EmployeePrenomina,
   HeaderPrenomina, 
   TotalesPrenomina, 
   PayrollSettings,
@@ -13,8 +14,32 @@ import {
   DEFAULT_CLAVES_DEDUCCION, 
   DEFAULT_CLAVES_ACTIVIDADES_AJENAS 
 } from '../data/defaultData';
-import { getDeduccionValue, getNocturnidadCantidad } from '../utils/prenominaCalculator';
-import { Edit3, Plus, Trash2, Printer, Save, RotateCcw, Building2, ChevronLeft, ChevronRight, FileSpreadsheet, Settings } from 'lucide-react';
+import { 
+  getDeduccionValue, 
+  getDeduccionHoursFromDays, 
+  getNocturnidadCantidad, 
+  calculateC74HoursFromDays, 
+  getC82Hours, 
+  calculateC82HoursFromDays, 
+  getC70Hours, 
+  getC54Hours,
+  calculateC54HoursFromDays,
+  parseMonthFromHeader,
+  getCubanHolidaysForMonth,
+  getWorkerAverageHourlyRate,
+  isClaveTiempoRealAjena,
+  normalizeClaveTiempoReal,
+  getActividadAjenaHours,
+  calculateActividadAjenaHoursFromDays,
+  CLAVES_TIEMPO_REAL_AJENAS,
+  dayCellMatchesClave,
+  getWorkerScheduledShiftForDay,
+  extractHoursFromDayCell
+} from '../utils/prenominaCalculator';
+import { exportOfficialEmployeesToExcel, parseOfficialEmployeesFromExcel } from '../utils/excelHelper';
+import { ExcelActions } from './ExcelActions';
+import { Edit3, Plus, Trash2, Printer, Save, Building2, ChevronLeft, ChevronRight, FileSpreadsheet, Settings, Eye } from 'lucide-react';
+import { useTableResize } from '../hooks/useTableResize';
 
 interface OfficialPrenominaViewProps {
   header: HeaderPrenomina;
@@ -31,7 +56,7 @@ interface OfficialPrenominaViewProps {
   onAddNewEmployee: () => void;
   onEditEmployee: (worker: EmployeeWithPrenominaCalc) => void;
   onDeleteEmployee: (employeeId: string) => void;
-  onResetToPdfSample: () => void;
+  onImportEmployees?: (employees: EmployeePrenomina[]) => void;
 }
 
 export const OfficialPrenominaView: React.FC<OfficialPrenominaViewProps> = ({
@@ -49,13 +74,13 @@ export const OfficialPrenominaView: React.FC<OfficialPrenominaViewProps> = ({
   onAddNewEmployee,
   onEditEmployee,
   onDeleteEmployee,
-  onResetToPdfSample
+  onImportEmployees
 }) => {
   const [isEditingHeader, setIsEditingHeader] = useState(false);
   const [headerForm, setHeaderForm] = useState<HeaderPrenomina>(header);
 
-  // Paginación oficial: 20 trabajadores por hoja
-  const WORKERS_PER_PAGE = 20;
+  // Paginación oficial: 8 trabajadores por hoja (para coincidir con 1 hoja de impresión)
+  const WORKERS_PER_PAGE = 8;
   const [currentPage, setCurrentPage] = useState(1);
 
   const totalPages = Math.max(1, Math.ceil(employees.length / WORKERS_PER_PAGE));
@@ -64,22 +89,94 @@ export const OfficialPrenominaView: React.FC<OfficialPrenominaViewProps> = ({
   const startIndex = (validCurrentPage - 1) * WORKERS_PER_PAGE;
   const currentEmployees = employees.slice(startIndex, startIndex + WORKERS_PER_PAGE);
 
-  // Claves y tarifas activas configurables
+  // Claves y tarifas activas configurables: C-82, C-85, C-57, C-72 EXCLUIDAS de deducciones
   const activeClavesDeduccion: ClaveDeduccion[] = (settings.clavesDeduccion || DEFAULT_CLAVES_DEDUCCION).filter(
-    c => c.activa !== false
+    c => c.activa !== false && !isClaveTiempoRealAjena(c.codigo)
   );
 
   const activeTarifasNoct: TarifaNocturnidad[] = (settings.tarifasNocturnidad || DEFAULT_TARIFAS_NOCTURNIDAD).filter(
     t => t.activa !== false
   );
 
-  const activeClavesActivAjenas: ClaveActividadAjena[] = (settings.clavesActividadesAjenas || DEFAULT_CLAVES_ACTIVIDADES_AJENAS).filter(
+  // C-82, C-85, C-57, C-72 se ubican en Actividades Ajenas y sus horas se suman al tiempo real trabajado
+  const rawActivAjenas = settings.clavesActividadesAjenas || DEFAULT_CLAVES_ACTIVIDADES_AJENAS;
+  const ensureAjenas = [...rawActivAjenas];
+  const requiredAjenas = [
+    { id: 'act-c82', codigo: 'C-82', nombre: 'C-82 Vacac. Simultáneas', descripcion: 'Horas C-82 que suman al tiempo real laborado', activa: true },
+    { id: 'act-c85', codigo: 'C-85', nombre: 'C-85 Movilizados / Defensa', descripcion: 'Horas C-85 que suman al tiempo real laborado', activa: true },
+    { id: 'act-c57', codigo: 'C-57', nombre: 'C-57 Interrupción autorizada', descripcion: 'Horas C-57 que suman al tiempo real laborado', activa: true },
+    { id: 'act-c72', codigo: 'C-72', nombre: 'C-72 Capacitación / Comisión', descripcion: 'Horas C-72 que suman al tiempo real laborado', activa: true },
+    { id: 'act-c69', codigo: 'C-69', nombre: 'C-69 Categoría Ocupacional', descripcion: 'Horas C-69 Categoría Ocupacional que suman al tiempo real laborado (se edita en datos complejos)', activa: true },
+    { id: 'act-c54', codigo: 'C-54', nombre: 'C-54 Movilización Militar', descripcion: 'Horas C-54 pagadas por tarifa de horas promedio', activa: true },
+    { id: 'act-c70', codigo: 'C-70', nombre: 'C-70 Feriados no trabajados', descripcion: 'Feriados y conmemoración nacional pagados por salario promedio', activa: true },
+  ];
+  requiredAjenas.forEach(req => {
+    if (!ensureAjenas.some(a => a.codigo.replace('-', '').toUpperCase() === req.codigo.replace('-', '').toUpperCase())) {
+      ensureAjenas.push(req);
+    }
+  });
+
+  const activeClavesActivAjenas: ClaveActividadAjena[] = ensureAjenas.filter(
     a => a.activa !== false
   );
 
+  const parseDateAndAutoUpdateHeader = (conclusionStr: string, header: HeaderPrenomina): HeaderPrenomina => {
+    const parts = conclusionStr.split(/[\/\-\.\s]/);
+    let date = new Date(NaN);
+
+    if (parts.length >= 3) {
+      const day = parseInt(parts[0], 10);
+      const month = parseInt(parts[1], 10) - 1; // 0-indexed for JS Date
+      let year = parseInt(parts[2], 10);
+      if (parts[2].length === 2) {
+        year = 2000 + year;
+      }
+      if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
+        date = new Date(year, month, day);
+      }
+    }
+
+    if (isNaN(date.getTime())) {
+      date = new Date(conclusionStr);
+    }
+
+    if (!isNaN(date.getTime())) {
+      const year = date.getFullYear();
+      const monthIndex = date.getMonth();
+      const monthNum = monthIndex + 1;
+      const monthNames = [
+        'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+        'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'
+      ];
+      const monthName = monthNames[monthIndex];
+
+      const firstDayStr = `1 ${monthName} ${year}`;
+      const lastDayObj = new Date(year, monthNum, 0);
+      const lastDayNum = lastDayObj.getDate();
+      const lastDayStr = `${lastDayNum} ${monthName} ${year}`;
+
+      return {
+        ...header,
+        fechaConclusion: conclusionStr,
+        periodoCorresponde: String(monthNum),
+        fechaDesde: firstDayStr,
+        fechaHasta: lastDayStr
+      };
+    }
+
+    return {
+      ...header,
+      fechaConclusion: conclusionStr
+    };
+  };
+
   const handleSaveHeader = (e: React.FormEvent) => {
     e.preventDefault();
-    onUpdateHeader(headerForm);
+    const finalHeader = {
+      ...headerForm,
+      numeroConsecutivo: `${validCurrentPage} de ${totalPages}`
+    };
+    onUpdateHeader(finalHeader);
     setIsEditingHeader(false);
   };
 
@@ -91,18 +188,21 @@ export const OfficialPrenominaView: React.FC<OfficialPrenominaViewProps> = ({
 
   // Actualizador para deducción dinámica
   const handleUpdateDeduccion = (emp: EmployeeWithPrenominaCalc, codigo: string, valStr: string) => {
-    const val = parseFloat(valStr) || 0;
-    const newDedValores = { ...(emp.deduccionesValores || {}), [codigo]: val };
+    const totalInputVal = parseFloat(valStr) || 0;
+    const autoFromDays = getDeduccionHoursFromDays(emp, codigo);
+    const manualVal = Math.max(0, Math.round((totalInputVal - autoFromDays) * 100) / 100);
+
+    const newDedValores = { ...(emp.deduccionesValores || {}), [codigo]: manualVal };
 
     // Sincronizar también con campos legados para máxima retrocompatibilidad
     const legacyUpdates: any = {};
-    if (codigo === 'C-25') legacyUpdates.vacacPlanifC25 = val;
-    if (codigo === 'C-20') legacyUpdates.cMedC20 = val;
-    if (codigo === 'C-10' || codigo === 'C-11') legacyUpdates.ausInjustJustC10_C11 = val;
-    if (codigo === 'C-82') legacyUpdates.vacacSimultanC82 = val;
-    if (codigo === 'C-27') legacyUpdates.bajaC27 = val;
-    if (codigo === 'C-30') legacyUpdates.nuevoIngC30 = val;
-    if (codigo === 'C-31') legacyUpdates.trasladoC31 = val;
+    if (codigo === 'C-25') legacyUpdates.vacacPlanifC25 = manualVal;
+    if (codigo === 'C-20') legacyUpdates.cMedC20 = manualVal;
+    if (codigo === 'C-10' || codigo === 'C-11') legacyUpdates.ausInjustJustC10_C11 = manualVal;
+    if (codigo === 'C-82') legacyUpdates.vacacSimultanC82 = manualVal;
+    if (codigo === 'C-27') legacyUpdates.bajaC27 = manualVal;
+    if (codigo === 'C-30') legacyUpdates.nuevoIngC30 = manualVal;
+    if (codigo === 'C-31') legacyUpdates.trasladoC31 = manualVal;
 
     onUpdateEmployeeField(emp.id, {
       deduccionesValores: newDedValores,
@@ -137,30 +237,108 @@ export const OfficialPrenominaView: React.FC<OfficialPrenominaViewProps> = ({
     });
   };
 
-  // Actualizador para horas extras / doblajes C-74 (Horas arriba, calcula importe abajo)
+  const columns = React.useMemo(() => [
+    { id: 'nombre', label: 'Nombre y Apellidos', width: 200 },
+    { id: 'cat', label: 'Cat.', width: 35 },
+    ...Array.from({ length: 31 }).map((_, i) => ({ id: `dia-${i + 1}`, label: `${i + 1}`, width: 25 })),
+    { id: 'tiempo-real', label: 'TIEMPO REAL', width: 60 },
+    ...activeTarifasNoct.map(t => ({ id: `noct-${t.codigo}`, label: t.nombre, width: 40 })),
+    { id: 'total-noct', label: 'Total Noct.', width: 50 },
+    { id: 'c74-extras', label: 'C-74 & Extras', width: 80 },
+    ...activeClavesActivAjenas.map(a => ({ id: `ajena-${a.codigo}`, label: a.codigo, width: 40 })),
+    ...activeClavesDeduccion.map(d => ({ id: `ded-${d.codigo}`, label: d.codigo, width: 30 })),
+    { id: 'salario-total', label: 'Salario Total', width: 90 },
+    { id: 'acciones', label: 'Acciones', width: 80 },
+  ], [activeTarifasNoct, activeClavesActivAjenas, activeClavesDeduccion]);
+
+  const { widths, startResizing } = useTableResize('prenomina-table', Object.fromEntries(columns.map(c => [c.id, c.width])));
+
+  const [showPrintPreview, setShowPrintPreview] = useState(false);
+  const [printConfig, setPrintConfig] = useState({
+    orientation: 'landscape' as 'landscape' | 'portrait',
+    fontSize: 'normal' as 'compact' | 'normal',
+    showSignatures: true
+  });
+
+  // Actualizador para horas extras / doblajes C-74
   const handleUpdateHorasC74 = (emp: EmployeeWithPrenominaCalc, horasStr: string) => {
-    const horas = parseFloat(horasStr) || 0;
+    const horasExtras = parseFloat(horasStr) || 0;
     const divisor = settings.divisorHorasMes || 190.6;
     const factor = settings.factorExtraFestiva || 2.0;
     const tarifa = emp.tarifaHoraria || ((emp.salarioBasicoEscala || 4800) / divisor);
-    const importe = Math.round(horas * tarifa * factor * 100) / 100;
+    
+    const horasC74 = calculateC74HoursFromDays(emp);
+    const importeC74 = horasC74 * tarifa * factor;
+    const importeExtras = horasExtras * tarifa * factor;
+    const importeTotal = Math.round((importeC74 + importeExtras) * 100) / 100;
 
     onUpdateEmployeeField(emp.id, {
-      trabajoExtra: { horas, importe }
+      trabajoExtra: { horas: horasExtras, importe: importeTotal }
     });
   };
 
+  // Días feriados oficiales y de conmemoración nacional (Código de Trabajo Cuba - Ley 116)
+  const currentMonthNum = parseMonthFromHeader(header, settings);
+  const cubanHolidaysMap = getCubanHolidaysForMonth(currentMonthNum);
+  const hasHolidaysInMonth = Object.keys(cubanHolidaysMap).length > 0;
+
+  const checkDayValidity = (val: string): boolean => {
+    if (!val || !val.trim()) return false;
+    const trimmed = val.trim();
+    const upper = trimmed.toUpperCase();
+    if (upper === 'D' || upper === 'V') return false;
+    if (upper.startsWith('C-') || upper.startsWith('C')) {
+      const parts = trimmed.split(/[:\s]+/);
+      if (parts.length > 1) {
+        const num = parseFloat(parts[1]);
+        if (!isNaN(num) && (num < 0 || num > 24)) return true;
+      }
+      return false;
+    }
+    const num = parseFloat(trimmed);
+    if (!isNaN(num)) {
+      if (num < 0 || num > 24) return true;
+    }
+    return false;
+  };
+
+  const getDayInputClass = (val: string, dayNum?: number) => {
+    const trimmed = (val || '').trim().toUpperCase();
+    const isInvalid = checkDayValidity(val);
+    const isRest = trimmed === 'D';
+    const isVac = trimmed === 'V';
+    const isAjena = isClaveTiempoRealAjena(trimmed) 
+      || dayCellMatchesClave(trimmed, 'C-54') 
+      || dayCellMatchesClave(trimmed, 'C-70') 
+      || CLAVES_TIEMPO_REAL_AJENAS.some(k => dayCellMatchesClave(trimmed, k));
+    const isHoliday = dayNum !== undefined && Boolean(cubanHolidaysMap[dayNum]);
+    const isLong = trimmed.length >= 3;
+    
+    let bg = 'bg-transparent text-slate-400';
+    if (isInvalid) bg = 'bg-rose-950 text-rose-100 font-black';
+    else if (isVac) bg = 'bg-rose-950 text-rose-100 font-black';
+    else if (isRest) bg = 'bg-slate-700/80 text-slate-300 font-black';
+    else if (isAjena) bg = 'bg-amber-950 text-amber-100 font-black';
+    else if (isHoliday) bg = 'bg-rose-900 text-rose-100 font-black border-rose-700';
+    else if (val) bg = 'text-slate-100 font-bold';
+
+    const textSize = isLong ? 'text-[8px] print:text-[6px] tracking-tighter' : 'text-[10px] print:text-[7.5px]';
+    const borderStyle = isInvalid ? 'border-2 border-rose-600 ring-2 ring-rose-500' : 'border-none';
+
+    return `w-full h-full text-center font-['Arial'] font-bold ${textSize} focus:outline-none tabular-nums print:p-0 print:m-0 print:leading-none ${bg} ${borderStyle}`;
+  };
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 font-['Arial'] text-[10px]">
       
       {/* Controles de Vista, Selector de CC y Acciones Rápidas (Excluidos de Impresión) */}
-      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 bg-white p-4 border border-slate-200 rounded-xl no-print shadow-xs">
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 bg-white p-4 border border-slate-300 rounded-xl no-print shadow-xs text-slate-900">
         
         {/* Selector de Centro de Costo (CC) */}
         <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-1.5 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
+          <div className="flex items-center gap-1.5 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-300">
             <Building2 className="w-4 h-4 text-slate-700" />
-            <span className="text-2xs font-bold uppercase text-slate-600">Centro de Costo:</span>
+            <span className="text-2xs font-bold uppercase text-slate-700">Centro de Costo:</span>
             <select
               value={selectedCCId}
               onChange={e => {
@@ -180,6 +358,16 @@ export const OfficialPrenominaView: React.FC<OfficialPrenominaViewProps> = ({
           <span className="text-xs text-slate-500 font-mono">
             · REEUP: {header.codigoREEUP} · {employees.length} trabajadores en {activeCC.codigoCC}
           </span>
+
+          {hasHolidaysInMonth && (
+            <span 
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-100 text-rose-950 border border-rose-300 text-3xs font-bold shadow-2xs" 
+              title={`Días Feriados y Conmemoración Nacional en este mes: ${Object.values(cubanHolidaysMap).join(' | ')}`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-600 animate-pulse"></span>
+              Feriados Ley 116: {Object.keys(cubanHolidaysMap).join(', ')} ({Object.values(cubanHolidaysMap).map(h => h.split('—')[0]).join(', ')})
+            </span>
+          )}
         </div>
 
         {/* Acciones principales */}
@@ -189,7 +377,7 @@ export const OfficialPrenominaView: React.FC<OfficialPrenominaViewProps> = ({
           <button
             onClick={onOpenCierreFinal}
             title="Consolidar todos los Centros de Costo en el Cierre Final"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-300 bg-emerald-950 hover:bg-emerald-900 border border-emerald-800 rounded-lg transition-colors cursor-pointer"
           >
             <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700" />
             <span>Cierre Final de Empresa</span>
@@ -199,7 +387,7 @@ export const OfficialPrenominaView: React.FC<OfficialPrenominaViewProps> = ({
           <button
             onClick={onOpenSettings}
             title="Modificar escaques, claves de deducción, tarifas de nocturnidad y actividades ajenas"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
           >
             <Settings className="w-3.5 h-3.5 text-slate-600" />
             <span>Configurar Escaques & Claves</span>
@@ -207,25 +395,43 @@ export const OfficialPrenominaView: React.FC<OfficialPrenominaViewProps> = ({
 
           <button
             onClick={() => setIsEditingHeader(!isEditingHeader)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
           >
             <Edit3 className="w-3.5 h-3.5" />
             <span>{isEditingHeader ? 'Cerrar Datos' : 'Firmas & Datos'}</span>
           </button>
 
+          <ExcelActions
+            label="Trabajadores"
+            exportTitle="Exportar la lista completa de trabajadores y días del Centro de Costo a Excel (.xlsx)"
+            importTitle="Importar trabajadores, cargos y días desde archivo Excel (.xlsx / .csv)"
+            onExport={() => exportOfficialEmployeesToExcel(employees, activeCC.codigoCC)}
+            onImport={(rows) => {
+              if (onImportEmployees) {
+                const parsed = parseOfficialEmployeesFromExcel(rows, activeCC.id);
+                if (parsed.length > 0) {
+                  onImportEmployees(parsed);
+                  alert(`Se importaron ${parsed.length} trabajadores exitosamente desde Excel.`);
+                } else {
+                  alert('No se encontraron trabajadores válidos en el archivo Excel.');
+                }
+              }
+            }}
+          />
+
           <button
-            onClick={onResetToPdfSample}
-            title="Cargar datos exactos del modelo PDF adjunto"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+            onClick={() => setShowPrintPreview(true)}
+            title="Abrir vista previa de impresión interactiva y configurable"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg transition-colors cursor-pointer"
           >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>Restablecer PDF</span>
+            <Eye className="w-3.5 h-3.5 text-slate-600" />
+            <span>Vista Previa</span>
           </button>
 
           <button
             onClick={() => window.print()}
             title="Imprimir hoja oficial (solo área obligatoria: de Nombre a Deducciones)"
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer shadow-sm"
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer shadow-sm"
           >
             <Printer className="w-3.5 h-3.5" />
             <span>Imprimir Hoja (Área Oficial)</span>
@@ -241,14 +447,14 @@ export const OfficialPrenominaView: React.FC<OfficialPrenominaViewProps> = ({
         </div>
       </div>
 
-      {/* Barra de Paginación (20 trabajadores por hoja) */}
-      <div className="flex items-center justify-between bg-white px-4 py-2 border border-slate-200 rounded-xl no-print text-xs">
+      {/* Barra de Paginación (8 trabajadores por hoja) */}
+      <div className="flex items-center justify-between bg-white px-4 py-2 border border-slate-300 rounded-xl no-print text-xs text-slate-900">
         <div className="flex items-center gap-2">
           <span className="font-bold text-slate-800">
             Hoja {validCurrentPage} de {totalPages}
           </span>
           <span className="text-slate-500 text-2xs">
-            (Mostrando {employees.length === 0 ? 0 : startIndex + 1} a {Math.min(startIndex + WORKERS_PER_PAGE, employees.length)} de {employees.length} trabajadores · Máximo 20 por hoja)
+            (Mostrando {employees.length === 0 ? 0 : startIndex + 1} a {Math.min(startIndex + WORKERS_PER_PAGE, employees.length)} de {employees.length} trabajadores · Máximo 8 por hoja para impresión perfecta)
           </span>
           <span className="text-2xs text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 ml-2">
             Área de Impresión: Nombre hasta Deducciones (el Salario Total es solo informativo en web)
@@ -295,8 +501,9 @@ export const OfficialPrenominaView: React.FC<OfficialPrenominaViewProps> = ({
       {/* Editor del Encabezado de Control (Si está activo) */}
       {isEditingHeader && (
         <form onSubmit={handleSaveHeader} className="bg-slate-50 border border-slate-200 rounded-xl p-4 no-print space-y-3 text-xs">
-          <div className="font-bold text-slate-800 uppercase tracking-wider text-2xs">
-            Editar Firmas y Parámetros del Formato Oficial
+          <div className="font-bold text-slate-800 uppercase tracking-wider text-2xs flex items-center justify-between">
+            <span>Editar Firmas y Parámetros del Formato Oficial</span>
+            <span className="text-emerald-700 font-normal">Al cambiar la Fecha de Conclusión, el Periodo, Desde y Hasta se calculan automáticamente.</span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
             <div>
@@ -337,9 +544,23 @@ export const OfficialPrenominaView: React.FC<OfficialPrenominaViewProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-7 gap-3">
             <div>
-              <label className="block text-2xs text-slate-600 mb-0.5">Periodo:</label>
+              <label className="block text-2xs text-slate-600 mb-0.5">Fecha Conclusión:</label>
+              <input
+                type="text"
+                value={headerForm.fechaConclusion}
+                onChange={e => {
+                  const val = e.target.value;
+                  const updated = parseDateAndAutoUpdateHeader(val, headerForm);
+                  setHeaderForm(updated);
+                }}
+                placeholder="Ej. 01/08/2026"
+                className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-xs font-mono font-bold text-emerald-950"
+              />
+            </div>
+            <div>
+              <label className="block text-2xs text-slate-600 mb-0.5">Periodo (Mes):</label>
               <input
                 type="text"
                 value={headerForm.periodoCorresponde}
@@ -351,9 +572,9 @@ export const OfficialPrenominaView: React.FC<OfficialPrenominaViewProps> = ({
               <label className="block text-2xs text-slate-600 mb-0.5">Consecutivo:</label>
               <input
                 type="text"
-                value={headerForm.numeroConsecutivo}
-                onChange={e => setHeaderForm({ ...headerForm, numeroConsecutivo: e.target.value })}
-                className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-xs font-mono"
+                value={`${validCurrentPage} de ${totalPages}`}
+                readOnly
+                className="w-full px-2.5 py-1.5 bg-slate-100 border border-slate-200 rounded-md text-xs font-mono text-slate-600 cursor-not-allowed font-bold"
               />
             </div>
             <div>
@@ -453,22 +674,22 @@ export const OfficialPrenominaView: React.FC<OfficialPrenominaViewProps> = ({
             </div>
 
             {/* Bloque Derecho: Periodo y Fechas */}
-            <div className="col-span-5 space-y-1 pl-1 font-mono text-2xs">
-              <div className="flex justify-between items-center">
+            <div className="col-span-5 space-y-1 pl-1 font-mono text-2xs text-right">
+              <div className="flex justify-end items-center gap-2">
                 <span className="font-bold text-slate-700">Periodo a que Corresponde:</span>
                 <span className="font-black bg-slate-100 px-2 py-0.5 rounded border border-slate-300">
                   {header.periodoCorresponde}
                 </span>
               </div>
-              <div className="flex justify-between">
+              <div className="flex justify-end items-center gap-2">
                 <span className="font-bold text-slate-700">Número consecutivo:</span>
-                <span className="font-bold">{header.numeroConsecutivo} (Hoja {validCurrentPage} de {totalPages})</span>
+                <span className="font-bold">{validCurrentPage} de {totalPages}</span>
               </div>
-              <div className="flex justify-between">
+              <div className="flex justify-end items-center gap-2">
                 <span className="font-bold text-slate-700">Desde:</span>
                 <span>{header.fechaDesde}</span>
               </div>
-              <div className="flex justify-between">
+              <div className="flex justify-end items-center gap-2">
                 <span className="font-bold text-slate-700">Hasta:</span>
                 <span>{header.fechaHasta}</span>
               </div>
@@ -489,9 +710,15 @@ export const OfficialPrenominaView: React.FC<OfficialPrenominaViewProps> = ({
         </div>
 
         {/* TABLA PRINCIPAL DEL FORMATO OFICIAL */}
-        <table className="w-full text-center border-collapse border border-slate-900 text-3xs font-mono">
-          <thead>
-            <tr className="bg-slate-200/90 text-slate-900 border-b border-slate-900 font-bold">
+        <div className="bg-white text-slate-900 border border-slate-300 rounded-lg overflow-hidden shadow-sm">
+          <table className="w-full text-center border-collapse border border-slate-300 font-['Arial'] text-[10px] table-fixed">
+            <colgroup>
+              {columns.map(col => (
+                <col key={col.id} style={{ width: widths[col.id] }} />
+              ))}
+            </colgroup>
+            <thead>
+              <tr className="bg-slate-100 text-slate-900 border-b border-slate-300 font-bold">
               
               {/* 1. Nombre y Apellidos */}
               <th rowSpan={2} className="border border-slate-900 py-1 px-2 text-left w-48">
@@ -518,10 +745,10 @@ export const OfficialPrenominaView: React.FC<OfficialPrenominaViewProps> = ({
                 NOCTURNIDAD
               </th>
 
-              {/* 6. Doblajes (C-74): Horas arriba y monto debajo en 1 sola columna */}
-              <th rowSpan={2} className="border border-slate-900 py-0.5 px-1 w-16 bg-orange-100 text-slate-900 font-bold" title="Trabajo Extraordinario / Doblajes C-74 (Horas arriba / Monto debajo)">
-                <div className="py-0.5 border-b border-slate-400 font-black text-3xs uppercase">C-74 Extra</div>
-                <div className="py-0.5 text-3xs font-mono font-bold text-orange-950">Horas / $</div>
+              {/* 6. Doblajes C-74 (desde días) y Horas Extras (manuales) */}
+              <th rowSpan={2} className="border border-slate-900 py-0.5 px-1 w-20 bg-orange-100 text-slate-900 font-bold" title="Doblajes C-74 (automáticos desde días) y Horas Extras (manuales) con su Importe Total">
+                <div className="py-0.5 border-b border-slate-400 font-black text-3xs uppercase">C-74 & Extras</div>
+                <div className="py-0.5 text-3xs font-mono font-bold text-orange-950">C74h+Ext / $</div>
               </th>
 
               {/* 7. Actividades Ajenas */}
@@ -547,25 +774,58 @@ export const OfficialPrenominaView: React.FC<OfficialPrenominaViewProps> = ({
             {/* Sub-encabezados de columnas de días, nocturnidad y deducciones */}
             <tr className="bg-slate-100 border-b border-slate-900 text-3xs font-semibold">
               {/* Días 1 al 15 arriba y 16 al 30 debajo */}
-              {Array.from({ length: 15 }).map((_, i) => (
-                <th key={i + 1} className="border border-slate-900 w-5 p-0 text-center font-bold">
-                  <div className="py-0.5 border-b border-slate-400 bg-slate-200/90 text-slate-950 font-bold text-3xs">
-                    {i + 1}
-                  </div>
-                  <div className="py-0.5 bg-slate-100 text-slate-800 font-bold text-3xs">
-                    {i + 16}
-                  </div>
-                </th>
-              ))}
+              {Array.from({ length: 15 }).map((_, i) => {
+                const dayTop = i + 1;
+                const dayBottom = i + 16;
+                const isHolidayTop = Boolean(cubanHolidaysMap[dayTop]);
+                const isHolidayBottom = Boolean(cubanHolidaysMap[dayBottom]);
+
+                return (
+                  <th key={i + 1} className="border border-slate-900 w-5 p-0 text-center font-bold">
+                    <div 
+                      className={`py-0.5 border-b border-slate-400 text-3xs font-bold ${
+                        isHolidayTop 
+                          ? 'bg-rose-300 text-rose-950 font-black' 
+                          : 'bg-slate-200/90 text-slate-950'
+                      }`}
+                      title={isHolidayTop ? `🚩 ${cubanHolidaysMap[dayTop]} (Día Feriado Oficial)` : `Día ${dayTop}`}
+                    >
+                      {dayTop}
+                    </div>
+                    <div 
+                      className={`py-0.5 text-3xs font-bold ${
+                        isHolidayBottom 
+                          ? 'bg-rose-300 text-rose-950 font-black' 
+                          : 'bg-slate-100 text-slate-800'
+                      }`}
+                      title={isHolidayBottom ? `🚩 ${cubanHolidaysMap[dayBottom]} (Día Feriado Oficial)` : `Día ${dayBottom}`}
+                    >
+                      {dayBottom}
+                    </div>
+                  </th>
+                );
+              })}
               {/* Columna 16: guión arriba y día 31 debajo */}
-              <th className="border border-slate-900 w-5 p-0 text-center font-bold">
-                <div className="py-0.5 border-b border-slate-400 bg-slate-200/50 text-slate-400 text-3xs">
-                  —
-                </div>
-                <div className="py-0.5 bg-slate-100 text-slate-800 font-bold text-3xs">
-                  31
-                </div>
-              </th>
+              {(() => {
+                const isHoliday31 = Boolean(cubanHolidaysMap[31]);
+                return (
+                  <th className="border border-slate-900 w-5 p-0 text-center font-bold">
+                    <div className="py-0.5 border-b border-slate-400 bg-slate-200/50 text-slate-400 text-3xs">
+                      —
+                    </div>
+                    <div 
+                      className={`py-0.5 text-3xs font-bold ${
+                        isHoliday31 
+                          ? 'bg-rose-300 text-rose-950 font-black' 
+                          : 'bg-slate-100 text-slate-800'
+                      }`}
+                      title={isHoliday31 ? `🚩 ${cubanHolidaysMap[31]} (Día Feriado Oficial)` : `Día 31`}
+                    >
+                      31
+                    </div>
+                  </th>
+                );
+              })()}
 
               {/* Columnas de Nocturnidad Dinámicas */}
               {activeTarifasNoct.map(t => (
@@ -576,11 +836,28 @@ export const OfficialPrenominaView: React.FC<OfficialPrenominaViewProps> = ({
               <th className="border border-slate-900 px-0.5 w-11 font-bold bg-yellow-100">Total Noct.</th>
 
               {/* Columnas de Actividades Ajenas Dinámicas */}
-              {activeClavesActivAjenas.map(a => (
-                <th key={a.id} className="border border-slate-900 px-0.5 w-8 font-normal" title={a.nombre}>
-                  {a.codigo}
-                </th>
-              ))}
+              {activeClavesActivAjenas.map(a => {
+                const isTiempoReal = isClaveTiempoRealAjena(a.codigo);
+                const normCode = normalizeClaveTiempoReal(a.codigo);
+                const isC70 = a.codigo === 'C-70' || a.codigo === 'C70';
+                const isC54 = a.codigo === 'C-54' || a.codigo === 'C54';
+                return (
+                  <th 
+                    key={a.id} 
+                    className={`border border-slate-900 px-1 py-0.5 font-normal text-center align-middle ${isTiempoReal ? 'bg-amber-100 font-bold text-amber-950' : ''} ${isC70 || isC54 ? 'bg-emerald-100 font-bold text-emerald-950' : ''}`} 
+                    title={a.descripcion || a.nombre}
+                  >
+                    <div className="h-16 flex items-center justify-center mx-auto text-center">
+                      <span 
+                        className="text-[9px] font-bold tracking-tight leading-none inline-block select-none whitespace-nowrap text-center" 
+                        style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
+                      >
+                        {isTiempoReal ? `${normCode} (h)` : isC54 ? 'C-54 ($)' : isC70 ? 'C-70 ($)' : a.codigo}
+                      </span>
+                    </div>
+                  </th>
+                );
+              })}
 
               {/* Columnas de Deducciones Dinámicas */}
               {activeClavesDeduccion.map(clave => (
@@ -626,45 +903,23 @@ export const OfficialPrenominaView: React.FC<OfficialPrenominaViewProps> = ({
                             {emp.nombreApellidos}
                           </span>
                         </div>
-                        <div className="text-3xs text-slate-600 font-sans font-normal mt-0.5">
-                          {settings?.escalaCargos && settings.escalaCargos.length > 0 ? (
-                            <select
-                              value={emp.cargo || ''}
-                              onChange={e => {
-                                const newCargoName = e.target.value;
-                                const cargoItem = settings.escalaCargos?.find(c => c.nombre === newCargoName);
-                                if (cargoItem) {
-                                  const divisor = settings.divisorHorasMes || 190.6;
-                                  onUpdateEmployeeField(emp.id, {
-                                    cargo: newCargoName,
-                                    catOcupacional: cargoItem.catOcupacionalDefault,
-                                    salarioBasicoEscala: cargoItem.salarioEscala,
-                                    tarifaHoraria: Math.round((cargoItem.salarioEscala / divisor) * 100) / 100
-                                  });
-                                } else {
-                                  onUpdateEmployeeField(emp.id, { cargo: newCargoName });
-                                }
-                              }}
-                              title="Cargo del trabajador (determina el salario de la escala)"
-                              className="bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded px-1 py-0.5 text-3xs text-slate-700 font-medium cursor-pointer focus:outline-none max-w-[155px] truncate"
-                            >
-                              <option value="">(Asignar Cargo)</option>
-                              {settings.escalaCargos.map(c => (
-                                <option key={c.id} value={c.nombre}>
-                                  {c.nombre}
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
-                            <span className="text-slate-500">{emp.cargo || ''}</span>
-                          )}
+                        <div className="text-3xs text-slate-700 font-mono font-bold mt-0.5 flex items-center gap-1">
+                          <span className="text-slate-500 font-normal">Exp:</span>
+                          <input
+                            type="text"
+                            value={emp.numeroExpediente || ''}
+                            onChange={e => onUpdateEmployeeField(emp.id, { numeroExpediente: e.target.value })}
+                            placeholder="—"
+                            className="w-16 bg-transparent hover:bg-slate-100 focus:bg-white border-b border-transparent hover:border-slate-300 focus:border-slate-800 px-0.5 text-3xs font-mono font-bold text-slate-900 focus:outline-none"
+                            title="Número de expediente del trabajador"
+                          />
                         </div>
                       </td>
 
                       {/* Categoría Ocupacional (T, C, O, A, S) */}
                       <td rowSpan={2} className="border border-slate-900 py-1 text-center font-bold text-slate-900 align-middle">
                         <select
-                          value={emp.catOcupacional}
+                          value={emp.catOcupacional || 'T'}
                           onChange={e => onUpdateEmployeeField(emp.id, { catOcupacional: e.target.value as any })}
                           className="bg-transparent text-center font-bold cursor-pointer focus:outline-none text-2xs"
                         >
@@ -678,25 +933,46 @@ export const OfficialPrenominaView: React.FC<OfficialPrenominaViewProps> = ({
 
                       {/* Días 1 al 15 (Fila superior) */}
                       {row1Days.map((val, idx) => {
+                        const dayNum = idx + 1;
+                        const isHoliday = Boolean(cubanHolidaysMap[dayNum]);
+                        const holidayName = cubanHolidaysMap[dayNum];
                         const trimmed = (val || '').trim().toUpperCase();
                         const isRest = trimmed === 'D';
                         const isVac = trimmed === 'V';
+                        const isAjena = isClaveTiempoRealAjena(trimmed) || CLAVES_TIEMPO_REAL_AJENAS.some(k => dayCellMatchesClave(trimmed, k));
+                        const shift = getWorkerScheduledShiftForDay(emp, idx);
+                        const ajenaHours = isAjena ? extractHoursFromDayCell(trimmed, shift) : null;
+
                         return (
-                          <td key={idx} className={`border border-slate-900 p-0 text-center w-5 h-5 ${isRest ? 'bg-slate-100' : ''}`}>
+                          <td 
+                            key={idx} 
+                            className={`border border-slate-900 p-0 text-center w-5 h-5 ${
+                              isRest 
+                                ? 'bg-slate-100' 
+                                : (isAjena ? 'bg-amber-50' : (isHoliday ? 'bg-rose-100/90' : ''))
+                            }`}
+                          >
                             <input
                               type="text"
-                              maxLength={4}
+                              maxLength={6}
                               value={val || ''}
                               onChange={e => onUpdateDay(emp.id, idx, e.target.value)}
-                              className={`w-full h-full text-center font-mono font-bold text-3xs border-none focus:outline-none tabular-nums ${
-                                isVac
-                                  ? 'bg-rose-100 text-rose-800 font-black'
+                              className={getDayInputClass(val, dayNum)}
+                              title={
+                                checkDayValidity(val)
+                                  ? `⚠️ Valor inválido: Ingrese un valor entre 0 y 24 horas por día`
+                                  : isHoliday
+                                  ? `🚩 ${holidayName} (Día Feriado Oficial Ley 116)${val ? ` — ${val}h` : ''}`
+                                  : isAjena
+                                  ? `${val}: Corresponde a ${ajenaHours}h laborables (Actividad Ajena que suma al tiempo real)`
                                   : isRest
-                                  ? 'bg-slate-200/80 text-slate-600 font-black'
+                                  ? `Día ${dayNum}: Descanso semanal (D)`
+                                  : isVac
+                                  ? `Día ${dayNum}: Vacaciones (V)`
                                   : val
-                                  ? 'text-slate-950 font-bold'
-                                  : 'bg-transparent text-slate-400'
-                              }`}
+                                  ? `Día ${dayNum}: ${val} horas`
+                                  : `Día ${dayNum}`
+                              }
                             />
                           </td>
                         );
@@ -708,25 +984,25 @@ export const OfficialPrenominaView: React.FC<OfficialPrenominaViewProps> = ({
                       </td>
 
                       {/* TIEMPO REAL LABORADO */}
-                      <td rowSpan={2} className="border border-slate-900 py-1 text-center font-black font-mono text-xs bg-amber-100 text-slate-950 align-middle tabular-nums">
+                      <td rowSpan={2} className="border border-slate-900 py-1 px-1 text-center font-black font-mono text-xs bg-amber-100 text-slate-950 align-middle tabular-nums whitespace-nowrap">
                         {emp.tiempoRealLaborado}
                       </td>
 
                       {/* Nocturnidad Dinámica (Valores) */}
                       {activeTarifasNoct.map(t => (
-                        <td key={t.id} rowSpan={2} className="border border-slate-900 py-1 text-center font-mono align-middle">
+                        <td key={t.id} rowSpan={2} className="border border-slate-900 py-1 px-1 text-center font-mono align-middle whitespace-nowrap">
                           <input
                             type="number"
                             value={getNocturnidadCantidad(emp, t.codigo) || ''}
                             placeholder="0"
                             onChange={e => handleUpdateNocturnidad(emp, t.codigo, e.target.value)}
-                            className="w-7 text-center bg-transparent border-none focus:outline-none tabular-nums text-3xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            className="w-full min-w-[28px] text-center bg-transparent border-none focus:outline-none tabular-nums text-3xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                           />
                         </td>
                       ))}
 
                       {/* Total Nocturnidad ($) */}
-                      <td rowSpan={2} className="border border-slate-900 py-1 text-center font-bold font-mono bg-yellow-50 text-slate-900 align-middle">
+                      <td rowSpan={2} className="border border-slate-900 py-1 px-1 text-center font-bold font-mono bg-yellow-50 text-slate-900 align-middle whitespace-nowrap">
                         <input
                           type="number"
                           step="0.01"
@@ -735,46 +1011,120 @@ export const OfficialPrenominaView: React.FC<OfficialPrenominaViewProps> = ({
                           onChange={e => onUpdateEmployeeField(emp.id, {
                             nocturnidad: { ...emp.nocturnidad, totalNocturnidad: parseFloat(e.target.value) || 0 }
                           })}
-                          className="w-11 text-center font-bold bg-transparent border-none focus:outline-none tabular-nums text-3xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          className="w-full min-w-[44px] text-center font-bold bg-transparent border-none focus:outline-none tabular-nums text-3xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                         />
                       </td>
 
-                      {/* C-74 (DOBLAJES): HORAS ARRIBA (Fila 1) */}
-                      <td className="border border-slate-900 p-0 text-center bg-orange-50/50 w-16 h-5">
-                        <div className="flex items-center justify-center h-full px-0.5">
+                      {/* C-74 (Doblajes desde días) + Horas Extras (manuales) (Fila 1) */}
+                      <td className="border border-slate-900 p-0 text-center bg-orange-50/50 w-20 h-5">
+                        <div className="flex items-center justify-between px-1 h-full text-3xs font-mono font-bold text-orange-950">
+                          <span title="Doblajes C-74 automáticos desde la distribución de días" className="text-orange-900 font-bold">
+                            C74:{calculateC74HoursFromDays(emp)}h
+                          </span>
                           <input
                             type="number"
                             step="0.5"
                             min="0"
                             value={emp.trabajoExtra.horas || ''}
-                            placeholder="0h"
-                            title="Ingresa las horas de doblaje / trabajo extraordinario C-74 (se suma al importe)"
+                            placeholder="Ext"
+                            title="Horas Extras manuales"
                             onChange={e => handleUpdateHorasC74(emp, e.target.value)}
-                            className="w-full h-full text-center font-bold font-mono text-orange-950 bg-transparent border-none focus:outline-none tabular-nums text-3xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            className="w-8 text-center font-bold font-mono text-orange-950 bg-white border border-orange-300 rounded text-3xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                           />
                         </div>
                       </td>
 
-                      {/* Actividades Ajenas Dinámicas */}
-                      {activeClavesActivAjenas.map(a => (
-                        <td key={a.id} rowSpan={2} className="border border-slate-900 py-1 text-center font-mono align-middle">
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={emp.activAjenasValores?.[a.codigo] ?? (emp.activAjenas || '')}
-                            placeholder="0"
-                            onChange={e => {
-                              const val = parseFloat(e.target.value) || 0;
-                              const newAct = { ...(emp.activAjenasValores || {}), [a.codigo]: val };
-                              onUpdateEmployeeField(emp.id, { 
-                                activAjenasValores: newAct,
-                                activAjenas: val 
-                              });
-                            }}
-                            className="w-7 text-center bg-transparent border-none focus:outline-none tabular-nums text-3xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                          />
-                        </td>
-                      ))}
+                      {/* Actividades Ajenas Dinámicas (incluye C-82, C-85, C-57, C-72, C-69, C-54 y C-70) */}
+                      {activeClavesActivAjenas.map(a => {
+                        const isTiempoReal = isClaveTiempoRealAjena(a.codigo);
+                        const normCode = normalizeClaveTiempoReal(a.codigo);
+                        const isC70 = a.codigo === 'C-70' || a.codigo === 'C70';
+                        const isC54 = a.codigo === 'C-54' || a.codigo === 'C54';
+                        const isC69 = a.codigo === 'C-69' || a.codigo === 'C69';
+                        
+                        let val: any = '';
+                        if (isTiempoReal) {
+                          val = getActividadAjenaHours(emp, normCode);
+                        } else if (isC70) {
+                          const h70 = getC70Hours(emp);
+                          const rate = getWorkerAverageHourlyRate(emp) || emp.tarifaHoraria || 25;
+                          val = Math.round(h70 * rate * 100) / 100;
+                        } else if (isC54) {
+                          const h54 = getC54Hours(emp);
+                          const rate = getWorkerAverageHourlyRate(emp) || emp.tarifaHoraria || 25;
+                          val = Math.round(h54 * rate * 100) / 100;
+                        } else {
+                          val = emp.activAjenasValores?.[a.codigo] ?? (emp.activAjenas || '');
+                        }
+
+                        const rateWorker = getWorkerAverageHourlyRate(emp) || emp.tarifaHoraria || 25;
+
+                        return (
+                          <td 
+                            key={a.id} 
+                            rowSpan={2} 
+                            className={`border border-slate-900 px-1 py-1 text-center font-mono align-middle whitespace-nowrap ${isTiempoReal ? 'bg-amber-50/80 font-bold' : ''} ${isC70 || isC54 ? 'bg-emerald-50/80 font-bold text-emerald-950' : ''}`}
+                            title={isC54 
+                              ? `C-54 Movilización Militar: ${getC54Hours(emp)}h × Tarifa Promedio $${rateWorker.toFixed(4)}/h = $${Number(val).toFixed(2)}`
+                              : isC70 
+                              ? `C-70 Feriados no trabajados: ${getC70Hours(emp)}h × Tarifa Promedio $${rateWorker.toFixed(4)}/h = $${Number(val).toFixed(2)}` 
+                              : isC69
+                              ? `C-69: ${val} horas (Suma al tiempo real. Se edita desde el botón 'Editar' del trabajador)`
+                              : (isTiempoReal ? `${normCode}: ${val} horas (actividad ajena que debió trabajar y suma al tiempo real)` : a.nombre)}
+                          >
+                            {isC70 || isC54 ? (
+                              <div className="flex flex-col items-center justify-center">
+                                <span className="inline-block px-1 py-0.5 text-3xs font-mono font-bold text-emerald-950 bg-emerald-100/70 rounded tabular-nums whitespace-nowrap">
+                                  ${typeof val === 'number' ? val.toFixed(2) : (parseFloat(val) || 0).toFixed(2)}
+                                </span>
+                                <span className="text-[8px] text-slate-500 font-normal">
+                                  ({isC54 ? getC54Hours(emp) : getC70Hours(emp)}h)
+                                </span>
+                              </div>
+                            ) : isC69 ? (
+                              <button
+                                type="button"
+                                onClick={() => onEditEmployee(emp)}
+                                className="w-full text-center px-1 py-0.5 text-3xs font-mono font-bold text-amber-950 bg-amber-100/90 hover:bg-amber-200/90 rounded border border-amber-300 transition-colors"
+                                title="Haz clic para editar C-69 en los datos complejos del trabajador"
+                              >
+                                {val || 0} h
+                              </button>
+                            ) : (
+                              <input
+                                type="number"
+                                step={isTiempoReal ? '0.5' : '0.01'}
+                                value={val || ''}
+                                placeholder="0"
+                                onChange={e => {
+                                  const num = parseFloat(e.target.value) || 0;
+                                  if (isTiempoReal) {
+                                    const autoFromDays = calculateActividadAjenaHoursFromDays(emp, normCode);
+                                    const manualVal = Math.max(0, Math.round((num - autoFromDays) * 100) / 100);
+                                    const newAct = { 
+                                      ...(emp.activAjenasValores || {}), 
+                                      [normCode]: manualVal,
+                                      [a.codigo]: manualVal 
+                                    };
+                                    const updateObj: Partial<EmployeePrenomina> = { activAjenasValores: newAct };
+                                    if (normCode === 'C-82') {
+                                      updateObj.deducciones = { ...(emp.deducciones || {}), vacacSimultanC82: manualVal };
+                                    }
+                                    onUpdateEmployeeField(emp.id, updateObj);
+                                  } else {
+                                    const newAct = { ...(emp.activAjenasValores || {}), [a.codigo]: num };
+                                    onUpdateEmployeeField(emp.id, { 
+                                      activAjenasValores: newAct, 
+                                      activAjenas: num 
+                                    });
+                                  }
+                                }}
+                                className={`w-full min-w-[36px] text-center bg-transparent border-0 px-0.5 py-0.5 focus:outline-none tabular-nums text-3xs font-medium [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${isTiempoReal ? 'text-amber-950 font-black' : ''}`}
+                              />
+                            )}
+                          </td>
+                        );
+                      })}
 
                       {/* Deducciones Dinámicas (Horas por Clave) */}
                       {activeClavesDeduccion.map(clave => {
@@ -784,7 +1134,7 @@ export const OfficialPrenominaView: React.FC<OfficialPrenominaViewProps> = ({
                           <td 
                             key={clave.codigo} 
                             rowSpan={2} 
-                            className={`border border-slate-900 py-1 text-center font-mono align-middle ${isVac ? 'bg-rose-100 font-bold text-rose-950' : ''}`}
+                            className={`border border-slate-900 py-1 px-1 text-center font-mono align-middle whitespace-nowrap ${isVac ? 'bg-rose-100 font-bold text-rose-950' : ''}`}
                           >
                             <input
                               type="number"
@@ -793,7 +1143,7 @@ export const OfficialPrenominaView: React.FC<OfficialPrenominaViewProps> = ({
                               placeholder="0"
                               title={`${clave.nombre} (${clave.codigo})`}
                               onChange={e => handleUpdateDeduccion(emp, clave.codigo, e.target.value)}
-                              className={`w-6 text-center bg-transparent border-none focus:outline-none tabular-nums text-3xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${isVac ? 'font-black text-rose-950' : ''}`}
+                              className={`w-full min-w-[32px] text-center bg-transparent border-none focus:outline-none tabular-nums text-3xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${isVac ? 'font-black text-rose-950' : ''}`}
                             />
                           </td>
                         );
@@ -835,25 +1185,46 @@ export const OfficialPrenominaView: React.FC<OfficialPrenominaViewProps> = ({
                       {/* Días 16 al 30 (15 celdas) */}
                       {row2Days.slice(0, 15).map((val, idx) => {
                         const actualDayIndex = 15 + idx;
+                        const dayNum = actualDayIndex + 1;
+                        const isHoliday = Boolean(cubanHolidaysMap[dayNum]);
+                        const holidayName = cubanHolidaysMap[dayNum];
                         const trimmed = (val || '').trim().toUpperCase();
                         const isRest = trimmed === 'D';
                         const isVac = trimmed === 'V';
+                        const isAjena = isClaveTiempoRealAjena(trimmed) || CLAVES_TIEMPO_REAL_AJENAS.some(k => dayCellMatchesClave(trimmed, k));
+                        const shift = getWorkerScheduledShiftForDay(emp, actualDayIndex);
+                        const ajenaHours = isAjena ? extractHoursFromDayCell(trimmed, shift) : null;
+
                         return (
-                          <td key={actualDayIndex} className={`border border-slate-900 p-0 text-center w-5 h-5 ${isRest ? 'bg-slate-100' : ''}`}>
+                          <td 
+                            key={actualDayIndex} 
+                            className={`border border-slate-900 p-0 text-center w-5 h-5 ${
+                              isRest 
+                                ? 'bg-slate-100' 
+                                : (isAjena ? 'bg-amber-50' : (isHoliday ? 'bg-rose-100/90' : ''))
+                            }`}
+                          >
                             <input
                               type="text"
-                              maxLength={4}
+                              maxLength={6}
                               value={val || ''}
                               onChange={e => onUpdateDay(emp.id, actualDayIndex, e.target.value)}
-                              className={`w-full h-full text-center font-mono font-bold text-3xs border-none focus:outline-none tabular-nums ${
-                                isVac
-                                  ? 'bg-rose-100 text-rose-800 font-black'
+                              className={getDayInputClass(val, dayNum)}
+                              title={
+                                checkDayValidity(val)
+                                  ? `⚠️ Valor inválido: Ingrese un valor entre 0 y 24 horas por día`
+                                  : isHoliday
+                                  ? `🚩 ${holidayName} (Día Feriado Oficial Ley 116)${val ? ` — ${val}h` : ''}`
+                                  : isAjena
+                                  ? `${val}: Corresponde a ${ajenaHours}h laborables (Actividad Ajena que suma al tiempo real)`
                                   : isRest
-                                  ? 'bg-slate-200/80 text-slate-600 font-black'
+                                  ? `Día ${dayNum}: Descanso semanal (D)`
+                                  : isVac
+                                  ? `Día ${dayNum}: Vacaciones (V)`
                                   : val
-                                  ? 'text-slate-950 font-bold'
-                                  : 'bg-transparent text-slate-400'
-                              }`}
+                                  ? `Día ${dayNum}: ${val} horas`
+                                  : `Día ${dayNum}`
+                              }
                             />
                           </td>
                         );
@@ -862,23 +1233,45 @@ export const OfficialPrenominaView: React.FC<OfficialPrenominaViewProps> = ({
                       {/* Día 31 */}
                       {(() => {
                         const val = row2Days[15] || '';
+                        const dayNum = 31;
+                        const isHoliday = Boolean(cubanHolidaysMap[dayNum]);
+                        const holidayName = cubanHolidaysMap[dayNum];
                         const trimmed = val.trim().toUpperCase();
                         const isRest = trimmed === 'D';
                         const isVac = trimmed === 'V';
+                        const isAjena = isClaveTiempoRealAjena(trimmed) || CLAVES_TIEMPO_REAL_AJENAS.some(k => dayCellMatchesClave(trimmed, k));
+                        const shift = getWorkerScheduledShiftForDay(emp, 30);
+                        const ajenaHours = isAjena ? extractHoursFromDayCell(trimmed, shift) : null;
+
                         return (
-                          <td className={`border border-slate-900 p-0 text-center w-5 h-5 ${isRest ? 'bg-slate-100' : 'bg-slate-100/50'}`}>
+                          <td 
+                            className={`border border-slate-900 p-0 text-center w-5 h-5 ${
+                              isRest 
+                                ? 'bg-slate-100' 
+                                : (isAjena ? 'bg-amber-50' : (isHoliday ? 'bg-rose-100/90' : 'bg-slate-100/50'))
+                            }`}
+                          >
                             <input
                               type="text"
-                              maxLength={4}
+                              maxLength={6}
                               value={val}
                               onChange={e => onUpdateDay(emp.id, 30, e.target.value)}
-                              className={`w-full h-full text-center font-mono font-bold text-3xs border-none focus:outline-none tabular-nums ${
-                                isVac
-                                  ? 'bg-rose-100 text-rose-800 font-black'
+                              className={getDayInputClass(val, dayNum)}
+                              title={
+                                checkDayValidity(val)
+                                  ? `⚠️ Valor inválido: Ingrese un valor entre 0 y 24 horas por día`
+                                  : isHoliday
+                                  ? `🚩 ${holidayName} (Día Feriado Oficial Ley 116)${val ? ` — ${val}h` : ''}`
+                                  : isAjena
+                                  ? `${val}: Corresponde a ${ajenaHours}h laborables (Actividad Ajena que suma al tiempo real)`
                                   : isRest
-                                  ? 'bg-slate-200/80 text-slate-600 font-black'
-                                  : 'text-slate-950'
-                              }`}
+                                  ? 'Día 31: Descanso semanal (D)'
+                                  : isVac
+                                  ? 'Día 31: Vacaciones (V)'
+                                  : val
+                                  ? `Día 31: ${val} horas`
+                                  : 'Día 31'
+                              }
                             />
                           </td>
                         );
@@ -934,25 +1327,52 @@ export const OfficialPrenominaView: React.FC<OfficialPrenominaViewProps> = ({
                   </td>
                 );
               })}
-              <td className="border border-slate-900 text-center font-mono font-bold bg-yellow-300 tabular-nums">
+              <td className="border border-slate-900 px-1 text-center font-mono font-bold bg-yellow-300 tabular-nums whitespace-nowrap text-3xs">
                 ${totals.totalImporteNocturnidad.toFixed(2)}
               </td>
 
-              {/* Totales C-74 (Doblaje): Horas arriba y monto debajo en la misma celda */}
+              {/* Totales C-74 (Doblajes desde días + Horas Extras manuales) */}
               <td className="border border-slate-900 text-center font-mono font-bold bg-orange-200 tabular-nums p-0">
                 <div className="border-b border-slate-400 py-0.5 text-3xs font-black text-orange-950">
-                  {totals.totalHorasExtra} h
+                  {currentEmployees.reduce((sum, e) => sum + calculateC74HoursFromDays(e) + (e.trabajoExtra?.horas || 0), 0)} h
                 </div>
                 <div className="py-0.5 text-2xs font-black text-orange-950 bg-orange-300/60">
                   ${totals.totalImporteTrabajoExtra.toFixed(2)}
                 </div>
               </td>
 
-              {/* Activ Ajenas Dinámicas */}
+              {/* Activ Ajenas Dinámicas (con C-82, C-85, C-57, C-72 en horas) */}
               {activeClavesActivAjenas.map(a => {
-                const totalAct = currentEmployees.reduce((sum, e) => sum + (e.activAjenasValores?.[a.codigo] ?? e.activAjenas ?? 0), 0);
+                const isTiempoReal = isClaveTiempoRealAjena(a.codigo);
+                const normCode = normalizeClaveTiempoReal(a.codigo);
+                const isC70 = a.codigo === 'C-70' || a.codigo === 'C70';
+
+                if (isTiempoReal) {
+                  const totalHoras = currentEmployees.reduce((sum, e) => sum + getActividadAjenaHours(e, normCode), 0);
+                  return (
+                    <td 
+                      key={a.id} 
+                      className="border border-slate-900 px-1 py-1 text-center font-mono tabular-nums font-black bg-amber-200 text-amber-950 text-3xs whitespace-nowrap" 
+                      title={`Total Horas ${normCode} sumadas al tiempo real trabajado: ${totalHoras} h`}
+                    >
+                      {totalHoras} h
+                    </td>
+                  );
+                }
+                const totalAct = currentEmployees.reduce((sum, e) => {
+                  if (isC70) {
+                    const h70 = getC70Hours(e);
+                    const rate = getWorkerAverageHourlyRate(e) || e.tarifaHoraria || 25;
+                    return sum + Math.round(h70 * rate * 100) / 100;
+                  }
+                  return sum + (e.activAjenasValores?.[a.codigo] ?? e.activAjenas ?? 0);
+                }, 0);
                 return (
-                  <td key={a.id} className="border border-slate-900 text-center font-mono tabular-nums">
+                  <td 
+                    key={a.id} 
+                    className={`border border-slate-900 px-1 py-1 text-center font-mono tabular-nums font-bold text-3xs whitespace-nowrap ${isC70 ? 'bg-emerald-200 text-emerald-950 font-black' : ''}`}
+                    title={`Total ${a.codigo}: $${totalAct.toFixed(2)}`}
+                  >
                     ${totalAct.toFixed(2)}
                   </td>
                 );
@@ -964,7 +1384,7 @@ export const OfficialPrenominaView: React.FC<OfficialPrenominaViewProps> = ({
                 return (
                   <td 
                     key={clave.codigo} 
-                    className={`border border-slate-900 text-center font-mono tabular-nums font-bold ${clave.codigo === 'C-25' ? 'bg-rose-200 text-rose-950 font-black' : ''}`}
+                    className={`border border-slate-900 px-1 py-1 text-center font-mono tabular-nums font-bold whitespace-nowrap text-3xs ${clave.codigo === 'C-25' ? 'bg-rose-200 text-rose-950 font-black' : ''}`}
                   >
                     {sumDed}
                   </td>
@@ -980,29 +1400,129 @@ export const OfficialPrenominaView: React.FC<OfficialPrenominaViewProps> = ({
             </tr>
           </tfoot>
         </table>
-
-        {/* Leyenda y Claves de Deducción Oficiales al pie */}
-        <div className="mt-4 pt-3 border-t border-slate-300 flex flex-wrap items-center justify-between gap-3 text-3xs text-slate-700 print-break-inside-avoid">
-          <div className="flex flex-wrap gap-x-4 gap-y-1">
-            <span className="font-black text-slate-900">Leyenda Oficial:</span>
-            <span className="bg-slate-100 px-1 rounded font-bold"><strong>D:</strong> Descanso Semanal</span>
-            <span className="bg-orange-50 px-1 rounded font-bold text-orange-950"><strong>C-74:</strong> Doblaje / Horas Extraordinarias</span>
-            {activeClavesDeduccion.map(clave => (
-              <span key={clave.codigo} className={clave.codigo === 'C-25' ? 'bg-rose-50 px-1 rounded font-bold text-rose-900' : ''}>
-                <strong>{clave.codigo}:</strong> {clave.nombre}
-              </span>
-            ))}
-            <span><strong>T:</strong> Técnico</span>
-            <span><strong>C:</strong> Cuadro</span>
-            <span><strong>O:</strong> Operario</span>
-          </div>
-
-          <div className="text-right font-mono text-2xs text-slate-600 font-bold">
-            <span>{header.direccionCC} · Hoja {validCurrentPage} de {totalPages} · Conclusión: {header.fechaConclusion}</span>
-          </div>
         </div>
 
+        {/* Leyenda y Claves de Deducción Oficiales al pie (Solo en la última hoja) */}
+        {validCurrentPage === totalPages && (
+          <div className="mt-4 pt-3 border-t border-slate-300 flex flex-wrap items-center justify-between gap-3 text-3xs text-slate-700 print-break-inside-avoid">
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+              <span className="font-black text-slate-900">Leyenda Oficial:</span>
+              <span className="bg-slate-100 px-1 rounded font-bold"><strong>D:</strong> Descanso Semanal</span>
+              <span className="bg-orange-50 px-1 rounded font-bold text-orange-950"><strong>C-74:</strong> Doblaje / Horas Extraordinarias</span>
+              {activeClavesDeduccion.map(clave => (
+                <span key={clave.codigo} className={clave.codigo === 'C-25' ? 'bg-rose-50 px-1 rounded font-bold text-rose-900' : ''}>
+                  <strong>{clave.codigo}:</strong> {clave.nombre}
+                </span>
+              ))}
+              <span><strong>T:</strong> Técnico</span>
+              <span><strong>C:</strong> Cuadro</span>
+              <span><strong>O:</strong> Operario</span>
+            </div>
+
+            <div className="text-right font-mono text-2xs text-slate-600 font-bold">
+              <span>{header.direccionCC} · Hoja {validCurrentPage} de {totalPages} · Conclusión: {header.fechaConclusion}</span>
+            </div>
+          </div>
+        )}
+
       </div>
+
+      {/* Modal de Vista Previa de Impresión Configurable */}
+      {showPrintPreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-xs p-4 overflow-y-auto no-print">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-900 text-white">
+              <div className="flex items-center gap-2">
+                <Printer className="w-5 h-5 text-emerald-400" />
+                <h3 className="text-sm font-bold">Vista Previa de Impresión Oficial (Prenómina)</h3>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => window.print()}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-slate-900 bg-emerald-400 hover:bg-emerald-300 rounded-lg transition-colors cursor-pointer shadow-sm"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Imprimir Ahora</span>
+                </button>
+                <button
+                  onClick={() => setShowPrintPreview(false)}
+                  className="p-1 text-slate-400 hover:text-white rounded-lg transition-colors cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* Opciones de Configuración */}
+            <div className="flex flex-wrap items-center justify-between gap-4 p-4 bg-slate-100 border-b border-slate-200 text-xs">
+              <div className="flex items-center gap-3">
+                <span className="font-semibold text-slate-700">Orientación:</span>
+                <label className="flex items-center gap-1.5 font-medium cursor-pointer">
+                  <input
+                    type="radio"
+                    name="orientation"
+                    checked={printConfig.orientation === 'landscape'}
+                    onChange={() => setPrintConfig({ ...printConfig, orientation: 'landscape' })}
+                  />
+                  <span>Horizontal (Recomendado para 31 días)</span>
+                </label>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <span className="font-semibold text-slate-700">Densidad / Letra:</span>
+                <select
+                  value={printConfig.fontSize}
+                  onChange={e => setPrintConfig({ ...printConfig, fontSize: e.target.value as any })}
+                  className="px-2.5 py-1 bg-white border border-slate-300 rounded-lg font-medium cursor-pointer"
+                >
+                  <option value="normal">Normal Oficial (Compacto)</option>
+                  <option value="compact">Ultra Compacto (Ajuste Extremo)</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-1.5 font-medium cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={printConfig.showSignatures}
+                    onChange={e => setPrintConfig({ ...printConfig, showSignatures: e.target.checked })}
+                  />
+                  <span>Incluir Firmas y Bloque de Cierre</span>
+                </label>
+              </div>
+            </div>
+
+            {/* Vista Previa Interactiva */}
+            <div className="flex-1 overflow-auto p-6 bg-slate-200/80">
+              <div className="bg-white p-6 shadow-2xl rounded-xl border border-slate-300 mx-auto max-w-[1200px]">
+                <div className="text-center font-bold text-slate-900 text-sm mb-1 uppercase">
+                  EMPRESA DE ASEO Y SERVICIOS COMUNALES · {activeCC.codigoCC}: {activeCC.nombre}
+                </div>
+                <div className="text-center text-2xs text-slate-600 mb-4 font-mono">
+                  PRENÓMINA DE SALARIO — Período: {header.periodoCorresponde} | REEUP: {header.codigoREEUP} | Hoja {validCurrentPage} de {totalPages}
+                </div>
+                
+                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-950 font-medium text-center mb-4">
+                  ✓ Configuración lista: El documento impreso incluye estrictamente desde "Nombre y Apellidos" hasta la última columna de "Deducciones". Las columnas de control web ("Salario Total" y "Acciones") están ocultas para la impresión.
+                </div>
+
+                <div className="flex justify-center">
+                  <button
+                    onClick={() => {
+                      setShowPrintPreview(false);
+                      window.print();
+                    }}
+                    className="inline-flex items-center gap-2 px-6 py-2.5 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition-colors cursor-pointer shadow-md"
+                  >
+                    <Printer className="w-4 h-4" />
+                    <span>Confirmar y Enviar a Impresión / PDF</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

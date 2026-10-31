@@ -1,4 +1,12 @@
-import { Employee, PayrollSettings, CentroCosto, ClaveDeduccion } from '../types/payroll';
+import { Employee, PayrollSettings, CentroCosto, ClaveDeduccion, TarifaNocturnidad, ClaveActividadAjena, SeniorityTier } from '../types/payroll';
+
+export const DEFAULT_SENIORITY_TIERS: SeniorityTier[] = [
+  { id: 'sent-1', minYears: 1, maxYears: 2, amount: 150, label: '1 a 2 años' },
+  { id: 'sent-2', minYears: 3, maxYears: 5, amount: 300, label: '3 a 5 años' },
+  { id: 'sent-3', minYears: 6, maxYears: 10, amount: 500, label: '6 a 10 años' },
+  { id: 'sent-4', minYears: 11, maxYears: 15, amount: 750, label: '11 a 15 años' },
+  { id: 'sent-5', minYears: 16, maxYears: 99, amount: 1000, label: 'Más de 15 años' }
+];
 
 export const DEFAULT_CENTROS_COSTO: CentroCosto[] = [
   {
@@ -41,7 +49,6 @@ export const DEFAULT_CLAVES_DEDUCCION: ClaveDeduccion[] = [
   { codigo: 'C-20', nombre: 'Certificado Médico', tipo: 'medico', descripcion: 'Incapacidad médica certificada por MINSAP', activa: true },
   { codigo: 'C-10', nombre: 'Ausencia Injustificada', tipo: 'ausencia', descripcion: 'Inasistencia sin causa justificada sujeta a descuento', activa: true },
   { codigo: 'C-11', nombre: 'Ausencia Justificada', tipo: 'ausencia', descripcion: 'Permisos oficiales y justificaciones laborales', activa: true },
-  { codigo: 'C-82', nombre: 'Vacaciones Simultáneas (VS)', tipo: 'vacaciones', descripcion: 'Pago adicional de vacaciones acumuladas simultáneas', activa: true },
   { codigo: 'C-84', nombre: 'Prestación Social Simultánea (PSS)', tipo: 'otro', descripcion: 'Prestaciones sociales autorizadas simultáneas', activa: true },
   { codigo: 'C-27', nombre: 'Baja Definitiva', tipo: 'baja', descripcion: 'Desvinculación laboral definitiva del centro', activa: true },
   { codigo: 'C-30', nombre: 'Nuevo Ingreso', tipo: 'otro', descripcion: 'Incorporación o alta de nuevo trabajador en el mes', activa: true },
@@ -55,7 +62,14 @@ export const DEFAULT_TARIFAS_NOCTURNIDAD: TarifaNocturnidad[] = [
 ];
 
 export const DEFAULT_CLAVES_ACTIVIDADES_AJENAS: ClaveActividadAjena[] = [
-  { id: 'act-01', codigo: 'ACT-01', nombre: 'Activ. ajenas', descripcion: 'Actividades ajenas e ingresos autorizados', activa: true }
+  { id: 'act-c82', codigo: 'C-82', nombre: 'C-82 Vacac. Simultáneas', descripcion: 'Horas de C-82 / Actividad ajena que suma al tiempo real laborado', activa: true },
+  { id: 'act-c85', codigo: 'C-85', nombre: 'C-85 Movilizados / Defensa', descripcion: 'Horas de C-85 / Actividad ajena que suma al tiempo real laborado', activa: true },
+  { id: 'act-c57', codigo: 'C-57', nombre: 'C-57 Interrupción autorizada', descripcion: 'Horas de C-57 / Actividad ajena que suma al tiempo real laborado', activa: true },
+  { id: 'act-c72', codigo: 'C-72', nombre: 'C-72 Capacitación / Comisión', descripcion: 'Horas de C-72 / Actividad ajena que suma al tiempo real laborado', activa: true },
+  { id: 'act-c69', codigo: 'C-69', nombre: 'C-69 Categoría Ocupacional', descripcion: 'Horas de C-69 Categoría Ocupacional que suman al tiempo real laborado', activa: true },
+  { id: 'act-c54', codigo: 'C-54', nombre: 'C-54 Movilización Militar', descripcion: 'Movilización militar pagada por tarifa de horas promedio', activa: true },
+  { id: 'act-c70', codigo: 'C-70', nombre: 'C-70 Feriados no trabajados', descripcion: 'Feriados y conmemoración nacional pagados por salario promedio', activa: true },
+  { id: 'act-01', codigo: 'ACT-01', nombre: 'Otras Activ. Ajenas', descripcion: 'Otras actividades ajenas e ingresos autorizados', activa: false }
 ];
 
 export const DEFAULT_ESCALA_SALARIAL = [
@@ -84,29 +98,37 @@ export const DEFAULT_PAYROLL_SETTINGS: PayrollSettings = {
   factorExtraNocturna: 1.75, // 75% recargo
   factorExtraFestiva: 2.0, // 100% recargo (doble)
   
-  // Deducciones legales del trabajador
-  tasaSaludTrabajador: 4.0, // 4%
-  tasaPensionTrabajador: 4.0, // 4%
-  tasaFondoSolidaridad: 1.0, // 1% para salarios altos
-  umbralFondoSolidaridad: 3500, // Sobre $3,500
+  // Impuestos y Contribuciones - Código Laboral y Ley Tributaria de Cuba (Sector Estatal)
+  tasaCESS: 5.0, // 5% Contribución Especial a la Seguridad Social (Ley 113)
+  aplicarISIP: true,
+  tasaISIP: 5.0, // 5% Impuesto sobre Ingresos Personales sobre exceso de mínimo exento
+  umbralExentoISIP: 3260, // Mínimo exento legal mensual del sector estatal cubano
+
+  // Aportes Patronales Estatales de la Entidad Empleadora (Cuba)
+  tasaSeguridadSocialPatronal: 12.5, // 12.5% Contribución a la Seguridad Social Patronal
+  tasaFuerzaTrabajoPatronal: 5.0, // 5.0% Impuesto por la Utilización de la Fuerza de Trabajo (IUFT)
+
+  // Subsidio de transporte: 0 (no existe en sector estatal cubano)
+  subsidioTransporteMensual: 0,
+  topeSubsidioTransporte: 0,
   
-  // Subsidio de transporte de ley
-  subsidioTransporteMensual: 120, // $120
-  topeSubsidioTransporte: 1800, // Quien gane hasta $1,800 recibe auxilio
-  
-  // Retención de impuestos estimada
-  aplicarRetencionAutomatica: true,
-  tasaRetencionEstimada: 10.0, // 10% marginal
-  umbralRetencion: 2500, // A partir de $2,500
-  
-  // Aportes Patronales (costo empleador)
-  tasaSaludPatronal: 8.5,
-  tasaPensionPatronal: 12.0,
-  tasaRiesgosLaborales: 0.522,
-  tasaPrestacionesSociales: 21.83, // Cesantías, primas y provisiones
-  
-  // Escala Salarial por Cargo
+  // Escala Salarial por Cargo y Antigüedad
   escalaCargos: DEFAULT_ESCALA_SALARIAL,
+  escalasAntiguedad: DEFAULT_SENIORITY_TIERS,
+  montosGradosAcademicos: {
+    licenciatura: 300,
+    especialidad: 450,
+    maestria: 600,
+    doctorado: 900
+  },
+
+  // Responsables oficiales unificados para todos los Centros de Costo (se configuran una sola vez)
+  firmasGlobales: {
+    confecciona: 'DAYSI REYES DÍAZ',
+    chequea: 'PEDRO ALBERTO GALBÁN LOPEZ',
+    aprueba: 'ZUNILDA MENDEZ LINARES',
+    anota: 'ELIESER DUARTES LÓPEZ'
+  },
 
   // Centros de Costo de la empresa
   centrosCosto: DEFAULT_CENTROS_COSTO,
@@ -142,11 +164,11 @@ export const INITIAL_EMPLOYEES: Employee[] = [
     otrosIngresos: 0,
     aplicaSubsidioTransporte: false,
     anticipos: 0,
-    prestamos: 200,
+    prestamos: 0,
     otrasDeducciones: 0,
     estado: 'aprobado',
     email: 'carlos.gomez@empresa.com',
-    notas: 'Horas nocturnas por despliegue de infraestructura.'
+    notas: 'Horas nocturnas por guardia técnica.'
   },
   {
     id: 'emp-002',
@@ -167,12 +189,12 @@ export const INITIAL_EMPLOYEES: Employee[] = [
     comisiones: 850,
     otrosIngresos: 0,
     aplicaSubsidioTransporte: false,
-    anticipos: 300,
+    anticipos: 0,
     prestamos: 0,
     otrasDeducciones: 0,
     estado: 'revisado',
     email: 'valeria.martinez@empresa.com',
-    notas: 'Comisión récord por cierre de cuentas corporativas Q4.'
+    notas: 'Comisión por cumplimiento de plan de servicios.'
   },
   {
     id: 'emp-003',
@@ -192,9 +214,9 @@ export const INITIAL_EMPLOYEES: Employee[] = [
     bonoPuntualidad: 80,
     comisiones: 0,
     otrosIngresos: 0,
-    aplicaSubsidioTransporte: true,
+    aplicaSubsidioTransporte: false,
     anticipos: 0,
-    prestamos: 50,
+    prestamos: 0,
     otrasDeducciones: 0,
     estado: 'aprobado',
     email: 'mateo.morales@empresa.com',
@@ -221,10 +243,10 @@ export const INITIAL_EMPLOYEES: Employee[] = [
     aplicaSubsidioTransporte: false,
     anticipos: 0,
     prestamos: 0,
-    otrasDeducciones: 25,
+    otrasDeducciones: 0,
     estado: 'revisado',
     email: 'camila.herrera@empresa.com',
-    notas: 'Deducción póliza seguro exequial colectivo.'
+    notas: 'Especialista en recursos humanos.'
   },
   {
     id: 'emp-005',
@@ -244,8 +266,8 @@ export const INITIAL_EMPLOYEES: Employee[] = [
     bonoPuntualidad: 0,
     comisiones: 0,
     otrosIngresos: 0,
-    aplicaSubsidioTransporte: true,
-    anticipos: 100,
+    aplicaSubsidioTransporte: false,
+    anticipos: 0,
     prestamos: 0,
     otrasDeducciones: 0,
     estado: 'borrador',
@@ -297,12 +319,12 @@ export const INITIAL_EMPLOYEES: Employee[] = [
     comisiones: 0,
     otrosIngresos: 0,
     aplicaSubsidioTransporte: false,
-    anticipos: 150,
+    anticipos: 0,
     prestamos: 0,
     otrasDeducciones: 0,
     estado: 'revisado',
     email: 'javier.navarro@empresa.com',
-    notas: 'Anticipo solicitado a mitad de mes.'
+    notas: 'Diseñador de aplicaciones.'
   },
   {
     id: 'emp-008',
@@ -322,12 +344,12 @@ export const INITIAL_EMPLOYEES: Employee[] = [
     bonoPuntualidad: 60,
     comisiones: 0,
     otrosIngresos: 0,
-    aplicaSubsidioTransporte: true,
+    aplicaSubsidioTransporte: false,
     anticipos: 0,
     prestamos: 0,
     otrasDeducciones: 0,
     estado: 'aprobado',
     email: 'daniela.perez@empresa.com',
-    notas: 'Subsidio de transporte automático asignado.'
+    notas: 'Trabajadora estatal con retención oficial CESS (5%).'
   }
 ];

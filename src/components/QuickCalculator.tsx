@@ -22,11 +22,6 @@ export const QuickCalculator: React.FC<QuickCalculatorProps> = ({
   const [bonoPuntualidad, setBonoPuntualidad] = useState<number>(0);
   const [comisiones, setComisiones] = useState<number>(0);
   const [otrosIngresos, setOtrosIngresos] = useState<number>(0);
-  const [anticipos, setAnticipos] = useState<number>(0);
-  const [prestamos, setPrestamos] = useState<number>(0);
-  const [otrasDeducciones, setOtrasDeducciones] = useState<number>(0);
-  const [aplicaSubsidio, setAplicaSubsidio] = useState<boolean>(true);
-
   // Nombre simulado opcional
   const [workerName, setWorkerName] = useState<string>('Nuevo Colaborador');
   const [workerRole, setWorkerRole] = useState<string>('Especialista');
@@ -50,10 +45,10 @@ export const QuickCalculator: React.FC<QuickCalculatorProps> = ({
     bonoPuntualidad,
     comisiones,
     otrosIngresos,
-    aplicaSubsidioTransporte: aplicaSubsidio,
-    anticipos,
-    prestamos,
-    otrasDeducciones,
+    aplicaSubsidioTransporte: false,
+    anticipos: 0,
+    prestamos: 0,
+    otrasDeducciones: 0,
     estado: 'borrador'
   }), [
     salarioBase,
@@ -65,10 +60,6 @@ export const QuickCalculator: React.FC<QuickCalculatorProps> = ({
     bonoPuntualidad,
     comisiones,
     otrosIngresos,
-    aplicaSubsidio,
-    anticipos,
-    prestamos,
-    otrasDeducciones,
     workerName,
     workerRole
   ]);
@@ -87,10 +78,6 @@ export const QuickCalculator: React.FC<QuickCalculatorProps> = ({
     setBonoPuntualidad(0);
     setComisiones(0);
     setOtrosIngresos(0);
-    setAnticipos(0);
-    setPrestamos(0);
-    setOtrasDeducciones(0);
-    setAplicaSubsidio(true);
     setWorkerName('Nuevo Colaborador');
   };
 
@@ -184,8 +171,8 @@ export const QuickCalculator: React.FC<QuickCalculatorProps> = ({
                   </span>
                   <input
                     type="number"
-                    step="50"
-                    min="0"
+                    step="any"
+                    min="0.01"
                     value={salarioBase}
                     onChange={e => setSalarioBase(Math.max(0, parseFloat(e.target.value) || 0))}
                     className="w-full pl-8 pr-3 py-2 text-sm font-bold font-mono tabular-nums border border-slate-200 rounded-lg focus:ring-1 focus:ring-slate-900 focus:border-slate-900"
@@ -236,20 +223,12 @@ export const QuickCalculator: React.FC<QuickCalculatorProps> = ({
               </div>
 
               <div className="flex flex-col justify-end">
-                <label className="flex items-center gap-2 cursor-pointer p-2.5 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors">
-                  <input
-                    type="checkbox"
-                    checked={aplicaSubsidio}
-                    onChange={e => setAplicaSubsidio(e.target.checked)}
-                    className="w-4 h-4 rounded text-slate-900"
-                  />
-                  <div className="text-xs">
-                    <span className="font-semibold text-slate-800">Auxilio de Transporte</span>
-                    <span className="text-2xs text-slate-500 block">
-                      +{formatCurrency(calculation.subsidioTransporteEfectivo, settings)}
-                    </span>
-                  </div>
-                </label>
+                <div className="p-2.5 bg-blue-50/70 border border-blue-200 rounded-lg text-xs">
+                  <span className="font-semibold text-blue-950 block">Régimen Estatal Cubano (Ley 116 / 113)</span>
+                  <span className="text-2xs text-blue-800 block">
+                    Retención CESS 5% e ISIP estatal. Sin impuestos por transporte ni por certificados médicos.
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -383,53 +362,6 @@ export const QuickCalculator: React.FC<QuickCalculatorProps> = ({
                 />
               </div>
             </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-100">
-              <div>
-                <label className="block text-2xs font-medium text-rose-700 mb-1">
-                  Anticipo Quincenal
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  step="50"
-                  value={anticipos || ''}
-                  placeholder="0.00"
-                  onChange={e => setAnticipos(Math.max(0, parseFloat(e.target.value) || 0))}
-                  className="w-full px-2.5 py-1.5 text-xs font-mono tabular-nums border border-slate-200 rounded-lg"
-                />
-              </div>
-
-              <div>
-                <label className="block text-2xs font-medium text-rose-700 mb-1">
-                  Préstamos / Cuotas
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  step="25"
-                  value={prestamos || ''}
-                  placeholder="0.00"
-                  onChange={e => setPrestamos(Math.max(0, parseFloat(e.target.value) || 0))}
-                  className="w-full px-2.5 py-1.5 text-xs font-mono tabular-nums border border-slate-200 rounded-lg"
-                />
-              </div>
-
-              <div>
-                <label className="block text-2xs font-medium text-rose-700 mb-1">
-                  Otras Deducciones
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  step="10"
-                  value={otrasDeducciones || ''}
-                  placeholder="0.00"
-                  onChange={e => setOtrasDeducciones(Math.max(0, parseFloat(e.target.value) || 0))}
-                  className="w-full px-2.5 py-1.5 text-xs font-mono tabular-nums border border-slate-200 rounded-lg"
-                />
-              </div>
-            </div>
           </div>
 
         </div>
@@ -490,68 +422,50 @@ export const QuickCalculator: React.FC<QuickCalculatorProps> = ({
                 </div>
               )}
 
-              {calculation.subsidioTransporteEfectivo > 0 && (
-                <div className="pt-2 flex justify-between items-center text-slate-600">
-                  <span>Subsidio de Transporte:</span>
-                  <span className="font-mono tabular-nums font-medium text-slate-900">
-                    +{formatCurrency(calculation.subsidioTransporteEfectivo, settings)}
-                  </span>
-                </div>
-              )}
-
               {calculation.totalBonosYComisiones > 0 && (
                 <div className="pt-2 flex justify-between items-center text-slate-600">
-                  <span>Bonificaciones / Comisiones:</span>
+                  <span>Bonificaciones / Estimulación:</span>
                   <span className="font-mono tabular-nums font-medium text-slate-900">
                     +{formatCurrency(calculation.totalBonosYComisiones, settings)}
                   </span>
                 </div>
               )}
 
-              {/* Deducciones de Ley */}
+              {/* Deducciones de Ley Estatales de Cuba (Ley 116 / Ley 113) */}
               <div className="pt-2 flex justify-between items-center text-rose-700">
-                <span>Salud del Trabajador ({settings.tasaSaludTrabajador}%):</span>
+                <span>Contribución Especial Seg. Social (CESS {settings.tasaCESS || 5}%):</span>
                 <span className="font-mono tabular-nums font-medium">
-                  -{formatCurrency(calculation.deduccionSalud, settings)}
+                  -{formatCurrency(calculation.deduccionCESS, settings)}
                 </span>
               </div>
 
-              <div className="pt-2 flex justify-between items-center text-rose-700">
-                <span>Pensión del Trabajador ({settings.tasaPensionTrabajador}%):</span>
-                <span className="font-mono tabular-nums font-medium">
-                  -{formatCurrency(calculation.deduccionPension, settings)}
-                </span>
-              </div>
-
-              {calculation.deduccionRetencionFuente > 0 && (
+              {calculation.deduccionISIP > 0 && (
                 <div className="pt-2 flex justify-between items-center text-rose-700">
-                  <span>Retención Impuesto Renta:</span>
+                  <span>Impuesto sobre Ingresos Personales (ISIP):</span>
                   <span className="font-mono tabular-nums font-medium">
-                    -{formatCurrency(calculation.deduccionRetencionFuente, settings)}
+                    -{formatCurrency(calculation.deduccionISIP, settings)}
                   </span>
                 </div>
               )}
 
-              {calculation.totalOtrasDeducciones > 0 && (
-                <div className="pt-2 flex justify-between items-center text-rose-700">
-                  <span>Anticipos y Préstamos:</span>
-                  <span className="font-mono tabular-nums font-medium">
-                    -{formatCurrency(calculation.totalOtrasDeducciones, settings)}
-                  </span>
-                </div>
-              )}
             </div>
           </div>
 
-          {/* Tarjeta de Costo Empleador / Empresa */}
+          {/* Tarjeta de Costo Empleador Estatal (Entidad Empleadora Cuba) */}
           <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs space-y-2">
             <span className="text-2xs font-bold uppercase tracking-wider text-slate-500 block">
-              Costo Total para el Empleador
+              Aportes Patronales Estatales (Entidad Empleadora en Cuba)
             </span>
-            <div className="flex justify-between items-center">
-              <span className="text-slate-600">Cargas Patronales (Salud, Pensión, Riesgos, Provisiones):</span>
-              <span className="font-mono tabular-nums font-semibold text-slate-800">
-                {formatCurrency(calculation.totalCargasPatronales, settings)}
+            <div className="flex justify-between items-center text-slate-600">
+              <span>Seguridad Social Patronal ({settings.tasaSeguridadSocialPatronal || 12.5}%):</span>
+              <span className="font-mono tabular-nums font-medium text-slate-800">
+                {formatCurrency(calculation.costoSeguridadSocialPatronal, settings)}
+              </span>
+            </div>
+            <div className="flex justify-between items-center text-slate-600">
+              <span>Utilización Fuerza de Trabajo ({settings.tasaFuerzaTrabajoPatronal || 5.0}%):</span>
+              <span className="font-mono tabular-nums font-medium text-slate-800">
+                {formatCurrency(calculation.costoFuerzaTrabajoPatronal, settings)}
               </span>
             </div>
             <div className="flex justify-between items-center pt-2 border-t border-slate-200 font-bold text-slate-900">

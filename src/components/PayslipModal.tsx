@@ -170,18 +170,9 @@ export const PayslipModal: React.FC<PayslipModalProps> = ({
                   </div>
                 )}
 
-                {employee.calculo.subsidioTransporteEfectivo > 0 && (
-                  <div className="flex justify-between items-center py-1 border-b border-slate-100">
-                    <span className="text-slate-600">Auxilio de Transporte</span>
-                    <span className="font-mono tabular-nums text-slate-900">
-                      {formatCurrency(employee.calculo.subsidioTransporteEfectivo, settings)}
-                    </span>
-                  </div>
-                )}
-
                 {employee.bonoPuntualidad > 0 && (
                   <div className="flex justify-between items-center py-1 border-b border-slate-100">
-                    <span className="text-slate-600">Bono de Asistencia / Puntualidad</span>
+                    <span className="text-slate-600">Bono de Asistencia / Estimulación</span>
                     <span className="font-mono tabular-nums text-slate-900">
                       {formatCurrency(employee.bonoPuntualidad, settings)}
                     </span>
@@ -190,7 +181,7 @@ export const PayslipModal: React.FC<PayslipModalProps> = ({
 
                 {employee.comisiones > 0 && (
                   <div className="flex justify-between items-center py-1 border-b border-slate-100">
-                    <span className="text-slate-600">Comisiones por Ventas</span>
+                    <span className="text-slate-600">Comisiones por Ventas / Servicios</span>
                     <span className="font-mono tabular-nums text-slate-900">
                       {formatCurrency(employee.comisiones, settings)}
                     </span>
@@ -199,7 +190,7 @@ export const PayslipModal: React.FC<PayslipModalProps> = ({
 
                 {employee.otrosIngresos > 0 && (
                   <div className="flex justify-between items-center py-1 border-b border-slate-100">
-                    <span className="text-slate-600">Otros Ingresos</span>
+                    <span className="text-slate-600">Otros Ingresos Salariales</span>
                     <span className="font-mono tabular-nums text-slate-900">
                       {formatCurrency(employee.otrosIngresos, settings)}
                     </span>
@@ -217,71 +208,34 @@ export const PayslipModal: React.FC<PayslipModalProps> = ({
 
             {/* Columna DEDUCCIONES */}
             <div className="border border-slate-200 rounded-xl overflow-hidden">
-              <div className="bg-slate-100 px-4 py-2 border-b border-slate-200">
+              <div className="bg-slate-100 px-4 py-2 border-b border-slate-200 flex justify-between items-center">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-rose-800">
-                  Conceptos Deducidos
+                  Conceptos Deducidos (Cuba)
                 </h3>
+                <span className="text-3xs font-mono font-bold bg-rose-100 text-rose-900 px-2 py-0.5 rounded">
+                  Ley 113 / 116
+                </span>
               </div>
 
               <div className="p-4 space-y-2 text-xs">
+                {/* CESS 5% */}
                 <div className="flex justify-between items-center py-1 border-b border-slate-100">
-                  <span className="text-slate-600">Aporte a Salud ({settings.tasaSaludTrabajador}%)</span>
+                  <span className="text-slate-600">Contribución Especial Seg. Social (CESS {settings.tasaCESS || 5}%)</span>
                   <span className="font-mono tabular-nums text-rose-700">
-                    -{formatCurrency(employee.calculo.deduccionSalud, settings)}
+                    -{formatCurrency(employee.calculo.deduccionCESS, settings)}
                   </span>
                 </div>
 
-                <div className="flex justify-between items-center py-1 border-b border-slate-100">
-                  <span className="text-slate-600">Aporte a Pensión ({settings.tasaPensionTrabajador}%)</span>
-                  <span className="font-mono tabular-nums text-rose-700">
-                    -{formatCurrency(employee.calculo.deduccionPension, settings)}
-                  </span>
-                </div>
-
-                {employee.calculo.deduccionFondoSolidaridad > 0 && (
+                {/* ISIP Estatal */}
+                {employee.calculo.deduccionISIP > 0 && (
                   <div className="flex justify-between items-center py-1 border-b border-slate-100">
-                    <span className="text-slate-600">Fondo Solidaridad Pensional</span>
+                    <span className="text-slate-600">Impuesto Ingresos Personales (ISIP)</span>
                     <span className="font-mono tabular-nums text-rose-700">
-                      -{formatCurrency(employee.calculo.deduccionFondoSolidaridad, settings)}
+                      -{formatCurrency(employee.calculo.deduccionISIP, settings)}
                     </span>
                   </div>
                 )}
 
-                {employee.calculo.deduccionRetencionFuente > 0 && (
-                  <div className="flex justify-between items-center py-1 border-b border-slate-100">
-                    <span className="text-slate-600">Retención Impuesto Renta</span>
-                    <span className="font-mono tabular-nums text-rose-700">
-                      -{formatCurrency(employee.calculo.deduccionRetencionFuente, settings)}
-                    </span>
-                  </div>
-                )}
-
-                {employee.anticipos > 0 && (
-                  <div className="flex justify-between items-center py-1 border-b border-slate-100">
-                    <span className="text-slate-600">Anticipos de Salario</span>
-                    <span className="font-mono tabular-nums text-rose-700">
-                      -{formatCurrency(employee.anticipos, settings)}
-                    </span>
-                  </div>
-                )}
-
-                {employee.prestamos > 0 && (
-                  <div className="flex justify-between items-center py-1 border-b border-slate-100">
-                    <span className="text-slate-600">Préstamo Empresa</span>
-                    <span className="font-mono tabular-nums text-rose-700">
-                      -{formatCurrency(employee.prestamos, settings)}
-                    </span>
-                  </div>
-                )}
-
-                {employee.otrasDeducciones > 0 && (
-                  <div className="flex justify-between items-center py-1 border-b border-slate-100">
-                    <span className="text-slate-600">Otras Deducciones</span>
-                    <span className="font-mono tabular-nums text-rose-700">
-                      -{formatCurrency(employee.otrasDeducciones, settings)}
-                    </span>
-                  </div>
-                )}
 
                 <div className="pt-2 flex justify-between items-center font-bold text-rose-700 text-sm">
                   <span>Total Deducciones</span>
@@ -322,6 +276,12 @@ export const PayslipModal: React.FC<PayslipModalProps> = ({
               <p className="text-xs font-semibold text-slate-800">Firma del Trabajador</p>
               <p className="text-2xs text-slate-500 font-mono">{employee.identificacion}</p>
             </div>
+          </div>
+
+          {/* Nota Legal Código de Trabajo de Cuba */}
+          <div className="mt-6 pt-3 border-t border-dashed border-slate-200 text-center text-3xs text-slate-400">
+            Comprobante oficial expedido según la Ley 116 (Código de Trabajo) y Ley 113 (Del Sistema Tributario) de la República de Cuba.
+            Las prestaciones por certificado médico (C-20) y subsidios de Seguridad Social están completamente exentos de deducciones impositivas.
           </div>
 
         </div>

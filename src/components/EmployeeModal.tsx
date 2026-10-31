@@ -165,7 +165,7 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({
             }`}
           >
             <ShieldCheck className="w-3.5 h-3.5" />
-            <span>3. Deducciones & Anticipos</span>
+            <span>3. Retenciones Estatales de Ley</span>
           </button>
         </div>
 
@@ -480,7 +480,7 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({
                   </div>
                 </div>
 
-                {/* Bonos, Comisiones y Auxilio de Transporte */}
+                {/* Bonos, Estimulación y Otros Ingresos */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -524,146 +524,67 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({
                     />
                   </div>
                 </div>
-
-                {/* Subsidio de Transporte Checkbox */}
-                <div className="pt-2">
-                  <label className="flex items-center gap-2 cursor-pointer p-3 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors">
-                    <input
-                      type="checkbox"
-                      checked={
-                        formData.aplicaSubsidioTransporte ||
-                        (settings.topeSubsidioTransporte > 0 && formData.salarioBase <= settings.topeSubsidioTransporte)
-                      }
-                      onChange={e => setFormData({ ...formData, aplicaSubsidioTransporte: e.target.checked })}
-                      className="w-4 h-4 rounded text-slate-900 border-slate-300 focus:ring-slate-900"
-                    />
-                    <div className="text-xs">
-                      <span className="font-semibold text-slate-900">Aplicar Auxilio / Subsidio de Transporte de Ley</span>
-                      <span className="text-slate-500 block text-2xs">
-                        Valor estándar: {formatCurrency(settings.subsidioTransporteMensual, settings)} mensual (proporcional a días trabajados: {formatCurrency(liveCalculation.subsidioTransporteEfectivo, settings)})
-                      </span>
-                    </div>
-                  </label>
-                </div>
               </div>
             )}
 
             {/* PESTAÑA 3: DEDUCCIONES Y ANTICIPOS */}
             {activeTab === 'deducciones' && (
               <div className="space-y-4">
-                {/* Desglose de Deducciones de Ley (Automáticas) */}
+                {/* Desglose de Deducciones de Ley Estatales de Cuba (Ley 116 / Ley 113) */}
                 <div className="border border-slate-200 rounded-xl p-3.5 bg-slate-50/60 space-y-2">
-                  <div className="text-xs font-semibold text-slate-800">
-                    Deducciones de Ley del Trabajador
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-800">
+                      Tributos y Retenciones Estatales de Ley (Cuba)
+                    </span>
+                    <span className="text-3xs font-mono font-bold bg-blue-100 text-blue-900 px-2 py-0.5 rounded">
+                      Ley 113 Tributaria
+                    </span>
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+                  <div className="grid grid-cols-2 gap-3 text-xs">
                     <div className="bg-white p-2.5 rounded-lg border border-slate-200">
-                      <span className="text-2xs text-slate-500 block">Salud ({settings.tasaSaludTrabajador}%)</span>
+                      <span className="text-2xs text-slate-500 block">Contribución Seg. Social (CESS {settings.tasaCESS || 5}%)</span>
                       <span className="font-mono tabular-nums font-semibold text-rose-600">
-                        -{formatCurrency(liveCalculation.deduccionSalud, settings)}
+                        -{formatCurrency(liveCalculation.deduccionCESS, settings)}
                       </span>
                     </div>
 
                     <div className="bg-white p-2.5 rounded-lg border border-slate-200">
-                      <span className="text-2xs text-slate-500 block">Pensión ({settings.tasaPensionTrabajador}%)</span>
+                      <span className="text-2xs text-slate-500 block">Impuesto Ingresos Personales (ISIP)</span>
                       <span className="font-mono tabular-nums font-semibold text-rose-600">
-                        -{formatCurrency(liveCalculation.deduccionPension, settings)}
-                      </span>
-                    </div>
-
-                    <div className="bg-white p-2.5 rounded-lg border border-slate-200 col-span-2 sm:col-span-1">
-                      <span className="text-2xs text-slate-500 block">Retención Estimada</span>
-                      <span className="font-mono tabular-nums font-semibold text-rose-600">
-                        -{formatCurrency(liveCalculation.deduccionRetencionFuente, settings)}
+                        -{formatCurrency(liveCalculation.deduccionISIP, settings)}
                       </span>
                     </div>
                   </div>
+                  <p className="text-3xs text-slate-500 italic">
+                    * El transporte no devenga subsidio ni impuesto. El certificado médico (C-20) está exento de gravamen por la Ley de Seguridad Social.
+                  </p>
                 </div>
 
-                {/* Deducciones Variables / Novedades del Empleado */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Anticipos de Salario Otorgados
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-2 text-xs text-slate-400 font-mono">
-                        {settings.simboloMoneda}
-                      </span>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={formData.anticipos || ''}
-                        onChange={e => updateNumberField('anticipos', e.target.value)}
-                        className="w-full pl-7 pr-3 py-2 text-xs font-mono tabular-nums border border-slate-200 rounded-lg"
-                      />
-                    </div>
-                    <span className="text-2xs text-slate-400 mt-0.5 block">Adelanto entregado en quincena</span>
+                {/* Ajuste Manual Opcional de Retención */}
+                <div className="pt-2">
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Ajuste Fijo de Retención ISIP (Opcional)
+                  </label>
+                  <div className="relative max-w-sm">
+                    <span className="absolute left-3 top-2 text-xs text-slate-400 font-mono">
+                      {settings.simboloMoneda}
+                    </span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="Automático por escala estatal"
+                      value={formData.retencionFuenteManual ?? ''}
+                      onChange={e => {
+                        const val = e.target.value === '' ? null : parseFloat(e.target.value);
+                        setFormData({ ...formData, retencionFuenteManual: isNaN(val as number) ? null : val });
+                      }}
+                      className="w-full pl-7 pr-3 py-2 text-xs font-mono tabular-nums border border-slate-200 rounded-lg"
+                    />
                   </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Cuota Préstamo de Empresa / Libranza
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-2 text-xs text-slate-400 font-mono">
-                        {settings.simboloMoneda}
-                      </span>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={formData.prestamos || ''}
-                        onChange={e => updateNumberField('prestamos', e.target.value)}
-                        className="w-full pl-7 pr-3 py-2 text-xs font-mono tabular-nums border border-slate-200 rounded-lg"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Otras Deducciones (Sindicato, Seguro, Fondos)
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-2 text-xs text-slate-400 font-mono">
-                        {settings.simboloMoneda}
-                      </span>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={formData.otrasDeducciones || ''}
-                        onChange={e => updateNumberField('otrasDeducciones', e.target.value)}
-                        className="w-full pl-7 pr-3 py-2 text-xs font-mono tabular-nums border border-slate-200 rounded-lg"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Retención en la Fuente Fija (Opcional)
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-2 text-xs text-slate-400 font-mono">
-                        {settings.simboloMoneda}
-                      </span>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        placeholder="Automático por regla"
-                        value={formData.retencionFuenteManual ?? ''}
-                        onChange={e => {
-                          const val = e.target.value === '' ? null : parseFloat(e.target.value);
-                          setFormData({ ...formData, retencionFuenteManual: isNaN(val as number) ? null : val });
-                        }}
-                        className="w-full pl-7 pr-3 py-2 text-xs font-mono tabular-nums border border-slate-200 rounded-lg"
-                      />
-                    </div>
-                  </div>
+                  <span className="text-2xs text-slate-400 mt-1 block">
+                    Dejar vacío para cálculo automático oficial según la Ley 113.
+                  </span>
                 </div>
               </div>
             )}
@@ -694,14 +615,6 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({
                   </div>
                 )}
 
-                {liveCalculation.subsidioTransporteEfectivo > 0 && (
-                  <div className="flex justify-between items-center text-slate-600">
-                    <span>Auxilio Transporte:</span>
-                    <span className="font-mono tabular-nums text-slate-800">
-                      +{formatCurrency(liveCalculation.subsidioTransporteEfectivo, settings)}
-                    </span>
-                  </div>
-                )}
 
                 {liveCalculation.totalBonosYComisiones > 0 && (
                   <div className="flex justify-between items-center text-slate-600">
@@ -719,24 +632,8 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({
                   </span>
                 </div>
 
-                <div className="flex justify-between items-center text-rose-700">
-                  <span>Deducciones de Ley:</span>
-                  <span className="font-mono tabular-nums">
-                    -{formatCurrency(liveCalculation.totalDeduccionesLey, settings)}
-                  </span>
-                </div>
-
-                {liveCalculation.totalOtrasDeducciones > 0 && (
-                  <div className="flex justify-between items-center text-rose-700">
-                    <span>Otras Deducciones:</span>
-                    <span className="font-mono tabular-nums">
-                      -{formatCurrency(liveCalculation.totalOtrasDeducciones, settings)}
-                    </span>
-                  </div>
-                )}
-
-                <div className="flex justify-between items-center text-rose-800 font-medium">
-                  <span>Total Deducciones:</span>
+                <div className="flex justify-between items-center text-rose-700 font-medium">
+                  <span>Retenciones de Ley (CESS/ISIP):</span>
                   <span className="font-mono tabular-nums">
                     -{formatCurrency(liveCalculation.totalDeducciones, settings)}
                   </span>

@@ -35,71 +35,82 @@ export function calculateEmployeePayroll(employee: Employee, settings: PayrollSe
   );
   const totalHorasExtras = roundCurrency(valorExtrasDiurnas + valorExtrasNocturnas + valorExtrasFestivas);
   
-  // Subsidio de transporte de ley (aplica si está marcado o si el salario base es menor o igual al tope establecido)
-  const aplicaSubsidio = employee.aplicaSubsidioTransporte || 
-    (settings.topeSubsidioTransporte > 0 && employee.salarioBase <= settings.topeSubsidioTransporte);
-  
-  const subsidioTransporteEfectivo = aplicaSubsidio && diasEfectivos > 0
-    ? roundCurrency((settings.subsidioTransporteMensual / diasBase) * diasEfectivos)
-    : 0;
+  // Subsidio de transporte: NO EXISTE en el sector estatal cubano (Ley 116 Código de Trabajo)
+  const subsidioTransporteEfectivo = 0;
   
   // Bonos, comisiones y otros devengados
   const totalBonosYComisiones = roundCurrency(
     (employee.bonoPuntualidad || 0) + (employee.comisiones || 0) + (employee.otrosIngresos || 0)
   );
   
-  // TOTAL DEVENGADO (Ingreso Bruto del empleado)
+  // TOTAL DEVENGADO (Ingreso Bruto del empleado estatal)
   const totalDevengado = roundCurrency(
-    sueldoBasicoDevengado + totalHorasExtras + subsidioTransporteEfectivo + totalBonosYComisiones
+    sueldoBasicoDevengado + totalHorasExtras + totalBonosYComisiones
   );
   
-  // Base de cotización para aportes de seguridad social (el auxilio de transporte no es factor salarial)
-  const baseCotizacion = roundCurrency(
-    Math.max(0, totalDevengado - subsidioTransporteEfectivo)
-  );
+  // Base imponible para tributos estatales (la totalidad de los ingresos devengados)
+  const baseCotizacion = totalDevengado;
   
-  // Deducciones de ley del trabajador
-  const deduccionSalud = roundCurrency(baseCotizacion * (settings.tasaSaludTrabajador / 100));
-  const deduccionPension = roundCurrency(baseCotizacion * (settings.tasaPensionTrabajador / 100));
+  // =========================================================================
+  // IMPUESTOS Y CONTRIBUCIONES DEL TRABAJADOR ESTATAL (Ley 116 y Ley 113 de Cuba)
+  // =========================================================================
   
-  // Fondo de solidaridad pensional (aplica sobre bases altas)
-  const deduccionFondoSolidaridad = (settings.umbralFondoSolidaridad > 0 && baseCotizacion >= settings.umbralFondoSolidaridad)
-    ? roundCurrency(baseCotizacion * (settings.tasaFondoSolidaridad / 100))
-    : 0;
+  // 1. Contribución Especial a la Seguridad Social (CESS) - 5% sobre ingresos devengados
+  const tasaCESS = settings.tasaCESS ?? 5.0;
+  const deduccionCESS = roundCurrency(baseCotizacion * (tasaCESS / 100));
   
-  // Retención en la fuente (IRPF / ISR)
-  let deduccionRetencionFuente = 0;
+  // 2. Impuesto sobre los Ingresos Personales (ISIP)
+  // Retención mensual según escala tributaria del sector estatal sobre ingresos que superen el mínimo exento legal
+  let deduccionISIP = 0;
   if (employee.retencionFuenteManual !== null && employee.retencionFuenteManual !== undefined) {
-    deduccionRetencionFuente = roundCurrency(employee.retencionFuenteManual);
-  } else if (settings.aplicarRetencionAutomatica && baseCotizacion > settings.umbralRetencion) {
-    const baseGravable = baseCotizacion - settings.umbralRetencion;
-    deduccionRetencionFuente = roundCurrency(baseGravable * (settings.tasaRetencionEstimada / 100));
+    deduccionISIP = roundCurrency(employee.retencionFuenteManual);
+  } else {
+    const aplicarISIP = settings.aplicarISIP ?? settings.aplicarRetencionAutomatica ?? true;
+    const umbral = settings.umbralExentoISIP ?? settings.umbralRetencion ?? 3260;
+    const tasa = settings.tasaISIP ?? settings.tasaRetencionEstimada ?? 5.0;
+    if (aplicarISIP && baseCotizacion > umbral) {
+      const baseGravable = baseCotizacion - umbral;
+      deduccionISIP = roundCurrency(baseGravable * (tasa / 100));
+    }
   }
   
-  const totalDeduccionesLey = roundCurrency(
-    deduccionSalud + deduccionPension + deduccionFondoSolidaridad + deduccionRetencionFuente
-  );
+  // Mapeos de retrocompatibilidad
+  const deduccionSalud = deduccionCESS;
+  const deduccionPension = 0;
+  const deduccionFondoSolidaridad = 0;
+  const deduccionRetencionFuente = deduccionISIP;
   
-  // Otras deducciones (anticipos, préstamos, deducciones adicionales)
-  const totalOtrasDeducciones = roundCurrency(
-    (employee.anticipos || 0) + (employee.prestamos || 0) + (employee.otrasDeducciones || 0)
-  );
+  // TOTAL DEDUCCIONES DE LEY ESTATALES
+  const totalDeduccionesLey = roundCurrency(deduccionCESS + deduccionISIP);
   
-  // TOTAL DEDUCCIONES
-  const totalDeducciones = roundCurrency(totalDeduccionesLey + totalOtrasDeducciones);
+  // Otras deducciones (anticipos, préstamos y otras deducciones descartados para trabajadores estatales)
+  const totalOtrasDeducciones = 0;
+  
+  // TOTAL DEDUCCIONES (estrictamente retenciones de ley: CESS + ISIP)
+  const totalDeducciones = totalDeduccionesLey;
   
   // SALARIO NETO A PAGAR AL TRABAJADOR
   const salarioNeto = roundCurrency(Math.max(0, totalDevengado - totalDeducciones));
   
-  // CARGAS PATRONALES (Aportes que paga el empleador por ley)
-  const costoSaludPatronal = roundCurrency(baseCotizacion * (settings.tasaSaludPatronal / 100));
-  const costoPensionPatronal = roundCurrency(baseCotizacion * (settings.tasaPensionPatronal / 100));
-  const costoRiesgosLaborales = roundCurrency(baseCotizacion * (settings.tasaRiesgosLaborales / 100));
-  const costoPrestacionesSociales = roundCurrency(baseCotizacion * (settings.tasaPrestacionesSociales / 100));
+  // =========================================================================
+  // CARGAS PATRONALES ESTATALES DE LA ENTIDAD EMPLEADORA (Cuba)
+  // =========================================================================
+  // Contribución a la Seguridad Social Patronal: 12.5%
+  const tasaSSPatronal = settings.tasaSeguridadSocialPatronal ?? 12.5;
+  const costoSeguridadSocialPatronal = roundCurrency(baseCotizacion * (tasaSSPatronal / 100));
   
-  const totalCargasPatronales = roundCurrency(
-    costoSaludPatronal + costoPensionPatronal + costoRiesgosLaborales + costoPrestacionesSociales
-  );
+  // Impuesto por la Utilización de la Fuerza de Trabajo (IUFT): 5.0%
+  const tasaFTPatronal = settings.tasaFuerzaTrabajoPatronal ?? 5.0;
+  const costoFuerzaTrabajoPatronal = roundCurrency(baseCotizacion * (tasaFTPatronal / 100));
+  
+  // Total cargas patronales (12.5% + 5.0% = 17.5% de la masa salarial)
+  const totalCargasPatronales = roundCurrency(costoSeguridadSocialPatronal + costoFuerzaTrabajoPatronal);
+  
+  // Mapeos de compatibilidad
+  const costoSaludPatronal = costoSeguridadSocialPatronal;
+  const costoPensionPatronal = costoFuerzaTrabajoPatronal;
+  const costoRiesgosLaborales = 0;
+  const costoPrestacionesSociales = 0;
   
   const costoTotalEmpresa = roundCurrency(totalDevengado + totalCargasPatronales);
   
@@ -116,6 +127,8 @@ export function calculateEmployeePayroll(employee: Employee, settings: PayrollSe
     totalBonosYComisiones,
     totalDevengado,
     baseCotizacion,
+    deduccionCESS,
+    deduccionISIP,
     deduccionSalud,
     deduccionPension,
     deduccionFondoSolidaridad,
@@ -124,6 +137,8 @@ export function calculateEmployeePayroll(employee: Employee, settings: PayrollSe
     totalOtrasDeducciones,
     totalDeducciones,
     salarioNeto,
+    costoSeguridadSocialPatronal,
+    costoFuerzaTrabajoPatronal,
     costoSaludPatronal,
     costoPensionPatronal,
     costoRiesgosLaborales,
@@ -143,11 +158,15 @@ export function calculatePayrollTotals(employees: EmployeeWithCalculation[]): Pa
       acc.totalSalarioBase += emp.salarioBase;
       acc.totalDevengado += emp.calculo.totalDevengado;
       acc.totalHorasExtras += emp.calculo.totalHorasExtras;
-      acc.totalSubsidioTransporte += emp.calculo.subsidioTransporteEfectivo;
+      acc.totalSubsidioTransporte += 0;
       acc.totalBonos += emp.calculo.totalBonosYComisiones;
-      acc.totalSaludTrabajador += emp.calculo.deduccionSalud;
-      acc.totalPensionTrabajador += emp.calculo.deduccionPension;
-      acc.totalRetencionFuente += emp.calculo.deduccionRetencionFuente;
+      acc.totalCESS += emp.calculo.deduccionCESS;
+      acc.totalISIP += emp.calculo.deduccionISIP;
+      acc.totalSeguridadSocialPatronal += emp.calculo.costoSeguridadSocialPatronal;
+      acc.totalFuerzaTrabajoPatronal += emp.calculo.costoFuerzaTrabajoPatronal;
+      acc.totalSaludTrabajador += emp.calculo.deduccionCESS;
+      acc.totalPensionTrabajador += 0;
+      acc.totalRetencionFuente += emp.calculo.deduccionISIP;
       acc.totalDeducciones += emp.calculo.totalDeducciones;
       acc.totalNetoPagar += emp.calculo.salarioNeto;
       acc.totalCargasPatronales += emp.calculo.totalCargasPatronales;
@@ -161,6 +180,10 @@ export function calculatePayrollTotals(employees: EmployeeWithCalculation[]): Pa
       totalHorasExtras: 0,
       totalSubsidioTransporte: 0,
       totalBonos: 0,
+      totalCESS: 0,
+      totalISIP: 0,
+      totalSeguridadSocialPatronal: 0,
+      totalFuerzaTrabajoPatronal: 0,
       totalSaludTrabajador: 0,
       totalPensionTrabajador: 0,
       totalRetencionFuente: 0,

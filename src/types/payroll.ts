@@ -86,13 +86,30 @@ export interface EscalaSalarialCargo {
   descripcion?: string;
 }
 
+export interface SeniorityTier {
+  id: string;
+  minYears: number;
+  maxYears: number;
+  amount: number;
+  label: string;
+}
+
+export type GradoAcademico = 'ninguno' | 'licenciatura' | 'especialidad' | 'maestria' | 'doctorado';
+
 export interface EmployeePrenomina {
   id: string;
   nombreApellidos: string;
+  numeroExpediente?: string; // Número de expediente (Exp.) del trabajador
   cargo?: string;
   catOcupacional: CatOcupacional;
   centroCostoId?: string; // ID del Centro de Costo al que pertenece
   fondoTiempoIndividual?: number;
+  fechaIngreso?: string; // Fecha de incorporación a la empresa (para antigüedad)
+  fechaBaja?: string; // Fecha de la baja C-27 (editable)
+  motivoBaja?: string; // Motivo de la baja C-27 (editable)
+  montoAntiguedadManual?: number; // Monto manual o sobrescrito de antigüedad
+  gradoAcademico?: GradoAcademico; // Grado académico (Licenciatura, Maestría, Doctorado, etc.)
+  montoGradoAcademicoManual?: number; // Monto manual o sobrescrito por grado académico
   dias: string[]; // 31 días
   nocturnidad: NocturnidadData;
   nocturnidadValores?: Record<string, number>; // Cantidades por clave de nocturnidad
@@ -114,6 +131,10 @@ export interface EmployeeWithPrenominaCalc extends EmployeePrenomina {
   salarioTiempoLaborado: number;
   salarioVacaciones: number;
   salarioTotalEstimado: number;
+  aniosAntiguedad: number;
+  montoAntiguedadCalculado: number;
+  montoGradoAcademicoCalculado: number;
+  salarioBasicoTotal: number;
 }
 
 export interface TotalesPrenomina {
@@ -162,7 +183,7 @@ export interface Employee {
   bonoPuntualidad: number;
   comisiones: number;
   otrosIngresos: number;
-  aplicaSubsidioTransporte: boolean;
+  aplicaSubsidioTransporte?: boolean; // Deprecado: No aplica en el sector estatal cubano
   anticipos: number;
   prestamos: number;
   otrasDeducciones: number;
@@ -185,26 +206,118 @@ export interface PayrollSettings {
   factorExtraDiurna: number;
   factorExtraNocturna: number;
   factorExtraFestiva: number;
-  tasaSaludTrabajador: number;
-  tasaPensionTrabajador: number;
-  tasaFondoSolidaridad: number;
-  umbralFondoSolidaridad: number;
-  subsidioTransporteMensual: number;
-  topeSubsidioTransporte: number;
-  aplicarRetencionAutomatica: boolean;
-  tasaRetencionEstimada: number;
-  umbralRetencion: number;
-  tasaSaludPatronal: number;
-  tasaPensionPatronal: number;
-  tasaRiesgosLaborales: number;
-  tasaPrestacionesSociales: number;
   
+  // IMPUESTOS Y RETENCIONES DEL TRABAJADOR ESTATAL (Ley 116 / Ley 113 de Cuba)
+  tasaCESS: number; // 5% Contribución Especial a la Seguridad Social
+  aplicarISIP: boolean; // Retención mensual del Impuesto sobre los Ingresos Personales
+  tasaISIP: number; // Tasa impositiva ISIP estatal sobre exceso de mínimo exento (ej: 5.0%)
+  umbralExentoISIP: number; // Mínimo exento legal mensual para ISIP (ej: 3260 CUP)
+
+  // APORTES PATRONALES ESTATALES DE LA ENTIDAD EMPLEADORA (Cuba)
+  tasaSeguridadSocialPatronal: number; // 12.5% Aporte Patronal a la Seguridad Social
+  tasaFuerzaTrabajoPatronal: number; // 5.0% Impuesto por Utilización de la Fuerza de Trabajo (IUFT)
+
+  // Campos de compatibilidad (deprecados/inactivos)
+  tasaSaludTrabajador?: number;
+  tasaPensionTrabajador?: number;
+  tasaFondoSolidaridad?: number;
+  umbralFondoSolidaridad?: number;
+  subsidioTransporteMensual?: number;
+  topeSubsidioTransporte?: number;
+  aplicarRetencionAutomatica?: boolean;
+  tasaRetencionEstimada?: number;
+  umbralRetencion?: number;
+  tasaSaludPatronal?: number;
+  tasaPensionPatronal?: number;
+  tasaRiesgosLaborales?: number;
+  tasaPrestacionesSociales?: number;
+  
+  // Responsables oficiales unificados para todos los CC
+  firmasGlobales?: {
+    confecciona: string;
+    chequea: string;
+    aprueba: string;
+    anota: string;
+  };
+
   // Escala salarial y configuraciones avanzadas
   escalaCargos?: EscalaSalarialCargo[];
+  escalasAntiguedad?: SeniorityTier[];
+  montosGradosAcademicos?: {
+    licenciatura: number;
+    especialidad: number;
+    maestria: number;
+    doctorado: number;
+  };
   centrosCosto?: CentroCosto[];
   clavesDeduccion?: ClaveDeduccion[];
   tarifasNocturnidad?: TarifaNocturnidad[];
   clavesActividadesAjenas?: ClaveActividadAjena[];
+}
+
+// ==========================================
+// TIPOS DE SALARIO PROMEDIO (LEY 116 / DEC. 326 CUBA)
+// ==========================================
+
+export interface MesSalarioPromedio {
+  id: string;
+  mesNumero: number; // 1 a 6
+  mesNombre: string; // ej. "Mes 1", "Enero 2026"
+  salarioEscala: number;
+  antiguedadYGrado: number;
+  nocturnidad: number;
+  horasExtras: number;
+  estimulacionResultados: number;
+  otrosDevengosComputables: number;
+  subsidioC20Excluido: number; // Certificado médico C-20 (informativo, excluido de la base)
+  diasLaborados: number;
+  horasLaboradas: number;
+}
+
+export type MotivoPromedioLey116 = 
+  | 'vacaciones'
+  | 'dias_feriados'
+  | 'movilizacion_defensa'
+  | 'donacion_sangre'
+  | 'citacion_judicial'
+  | 'capacitacion_estatal'
+  | 'interrupcion_30dias'
+  | 'interrupcion_mayor30'
+  | 'reubicacion_temporal'
+  | 'licencia_retribuida'
+  | 'comision_servicio';
+
+export interface ConceptoMotivoPromedio {
+  id: MotivoPromedioLey116;
+  nombre: string;
+  articuloLey: string;
+  porcentajeDefault: number;
+  descripcion: string;
+  unidadDefault: 'dias' | 'horas';
+}
+
+export interface RegistroLiquidacionPromedio {
+  id: string;
+  fechaRegistro: string;
+  trabajadorId: string;
+  nombreApellidos: string;
+  numeroExpediente: string;
+  cargo: string;
+  centroCostoId: string;
+  centroCostoNombre: string;
+  motivo: MotivoPromedioLey116;
+  motivoNombre: string;
+  articuloLey: string;
+  modalidadCalculo?: 'dias' | 'horas';
+  diasLiquidar: number;
+  horasLiquidar?: number;
+  porcentajePago: number; // 100 o 60
+  salarioPromedioDiario: number;
+  tarifaPromedioHora: number;
+  montoBruto: number;
+  deduccionCESS: number; // 5% Contribución Especial a la Seguridad Social
+  montoNeto: number;
+  observaciones?: string;
 }
 
 export interface CalculationBreakdown {
@@ -216,18 +329,30 @@ export interface CalculationBreakdown {
   valorExtrasNocturnas: number;
   valorExtrasFestivas: number;
   totalHorasExtras: number;
-  subsidioTransporteEfectivo: number;
+  subsidioTransporteEfectivo: number; // 0 en sector estatal
   totalBonosYComisiones: number;
   totalDevengado: number;
   baseCotizacion: number;
+  
+  // Impuestos Estatales de Cuba
+  deduccionCESS: number; // 5% Contribución Especial a la Seguridad Social
+  deduccionISIP: number; // Impuesto sobre Ingresos Personales estatal
+
+  // Compatibilidad
   deduccionSalud: number;
   deduccionPension: number;
   deduccionFondoSolidaridad: number;
   deduccionRetencionFuente: number;
+
   totalDeduccionesLey: number;
   totalOtrasDeducciones: number;
   totalDeducciones: number;
   salarioNeto: number;
+
+  // Aportes Patronales Estatales (12.5% + 5.0%)
+  costoSeguridadSocialPatronal: number;
+  costoFuerzaTrabajoPatronal: number;
+
   costoSaludPatronal: number;
   costoPensionPatronal: number;
   costoRiesgosLaborales: number;
@@ -247,6 +372,13 @@ export interface PayrollTotals {
   totalHorasExtras: number;
   totalSubsidioTransporte: number;
   totalBonos: number;
+  
+  // Impuestos Estatales Cubanos
+  totalCESS: number;
+  totalISIP: number;
+  totalSeguridadSocialPatronal: number;
+  totalFuerzaTrabajoPatronal: number;
+
   totalSaludTrabajador: number;
   totalPensionTrabajador: number;
   totalRetencionFuente: number;
@@ -255,3 +387,14 @@ export interface PayrollTotals {
   totalCargasPatronales: number;
   costoTotalEmpresa: number;
 }
+
+export interface PeriodoHistoricoSnapshot {
+  id: string;
+  nombrePeriodo: string;
+  fechaGuardado: string;
+  empleados: EmployeePrenomina[];
+  header: HeaderPrenomina;
+}
+
+export type ColorTheme = 'white' | 'ivory' | 'slate' | 'blue' | 'mint';
+

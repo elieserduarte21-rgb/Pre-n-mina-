@@ -40,24 +40,20 @@ export const PayrollAnalytics: React.FC<PayrollAnalyticsProps> = ({
   // Desglose de componentes del devengado
   const devengadoParts = useMemo(() => {
     const total = totals.totalDevengado || 1;
-    const baseDevengado = Math.max(0, totals.totalDevengado - totals.totalHorasExtras - totals.totalSubsidioTransporte - totals.totalBonos);
+    const baseDevengado = Math.max(0, totals.totalDevengado - totals.totalHorasExtras - totals.totalBonos);
     return [
       { label: 'Sueldo Básico', amount: baseDevengado, pct: (baseDevengado / total) * 100, color: 'bg-slate-800' },
       { label: 'Horas Extras', amount: totals.totalHorasExtras, pct: (totals.totalHorasExtras / total) * 100, color: 'bg-amber-600' },
-      { label: 'Auxilio Transporte', amount: totals.totalSubsidioTransporte, pct: (totals.totalSubsidioTransporte / total) * 100, color: 'bg-blue-600' },
-      { label: 'Bonos y Comisiones', amount: totals.totalBonos, pct: (totals.totalBonos / total) * 100, color: 'bg-emerald-600' }
+      { label: 'Bonos y Estimulación', amount: totals.totalBonos, pct: (totals.totalBonos / total) * 100, color: 'bg-emerald-600' }
     ];
   }, [totals]);
 
-  // Desglose de deducciones
+  // Desglose de deducciones de ley estatales de Cuba (Ley 116 / Ley 113)
   const deduccionesParts = useMemo(() => {
-    const total = totals.totalDeducciones || 1;
-    const otras = Math.max(0, totals.totalDeducciones - totals.totalSaludTrabajador - totals.totalPensionTrabajador - totals.totalRetencionFuente);
+    const total = (totals.totalCESS || 0) + (totals.totalISIP || 0) || 1;
     return [
-      { label: 'Salud Trabajador', amount: totals.totalSaludTrabajador, pct: (totals.totalSaludTrabajador / total) * 100, color: 'bg-rose-600' },
-      { label: 'Pensión Trabajador', amount: totals.totalPensionTrabajador, pct: (totals.totalPensionTrabajador / total) * 100, color: 'bg-rose-500' },
-      { label: 'Retención Impuesto', amount: totals.totalRetencionFuente, pct: (totals.totalRetencionFuente / total) * 100, color: 'bg-rose-400' },
-      { label: 'Anticipos y Préstamos', amount: otras, pct: (otras / total) * 100, color: 'bg-rose-700' }
+      { label: 'Contribución Especial Seg. Social (CESS 5%)', amount: totals.totalCESS || 0, pct: ((totals.totalCESS || 0) / total) * 100, color: 'bg-rose-600' },
+      { label: 'Impuesto sobre Ingresos Personales (ISIP Estatal)', amount: totals.totalISIP || 0, pct: ((totals.totalISIP || 0) / total) * 100, color: 'bg-rose-500' }
     ];
   }, [totals]);
 
@@ -224,12 +220,12 @@ export const PayrollAnalytics: React.FC<PayrollAnalyticsProps> = ({
           </div>
 
           <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
-            <span className="text-2xs font-semibold text-slate-600 uppercase block">2. Retenciones y Aportes de Ley</span>
+            <span className="text-2xs font-semibold text-slate-600 uppercase block">2. Retenciones Estatales de Ley</span>
             <span className="text-xl font-bold font-mono tabular-nums text-rose-700 mt-1 block">
               {formatCurrency(totals.totalDeducciones, settings)}
             </span>
             <p className="text-2xs text-slate-500 mt-1">
-              Monto retenido a los empleados por concepto de salud, pensión e impuestos.
+              Monto retenido a los trabajadores por concepto de Contribución CESS (5%) e ISIP estatal.
             </p>
           </div>
 
@@ -239,7 +235,7 @@ export const PayrollAnalytics: React.FC<PayrollAnalyticsProps> = ({
               {formatCurrency(totals.costoTotalEmpresa, settings)}
             </span>
             <p className="text-2xs text-slate-300 mt-1">
-              Incluye salario bruto + {formatCurrency(totals.totalCargasPatronales, settings)} en cargas patronales y provisiones.
+              Incluye masa salarial devengada + {formatCurrency(totals.totalCargasPatronales, settings)} en aportes patronales estatales (12.5% Seg. Social + 5.0% Fuerza de Trabajo).
             </p>
           </div>
         </div>

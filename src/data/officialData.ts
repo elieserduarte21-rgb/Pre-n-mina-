@@ -11,7 +11,7 @@ export const DEFAULT_HEADER_PRENOMINA: HeaderPrenomina = {
   fechaHasta: '31 agosto 2026',
   codigoREEUP: '151.0.4897',
   direccionCC: 'CC 101',
-  fechaConclusion: '01/08/2026'
+  fechaConclusion: '01/08/26'
 };
 
 // Generador de plantilla de 31 días con patrón estándar 9-9-9-9-8 (o vacíos en descansos)
@@ -289,9 +289,11 @@ export const INITIAL_OFFICIAL_EMPLOYEES: EmployeePrenomina[] = [
     catOcupacional: 'O',
     centroCostoId: 'cc-101',
     fondoTiempoIndividual: 185,
+    fechaBaja: '2026-08-22',
+    motivoBaja: 'Jubilación por edad',
     dias: [
       '', '', '9', '9', '9', '9', '8', '', '', '9', '9', '9', '9', '8', '',
-      '9', '9', '9', '9', '8', '', '', '9', '9', '9', '9', '8', '', '', '9', ''
+      '9', '9', '9', '9', '8', '', 'C-27', 'C-27', 'C-27', 'C-27', 'C-27', '', '', 'C-27', ''
     ],
     nocturnidad: {
       nochesComp100: 0,
@@ -309,13 +311,13 @@ export const INITIAL_OFFICIAL_EMPLOYEES: EmployeePrenomina[] = [
       ausInjustJustC10_C11: 0,
       cMedC20: 0,
       vacacPlanifC25: 0,
-      bajaC27: 0,
+      bajaC27: 49,
       nuevoIngC30: 0,
       trasladoC31: 0
     },
     salarioBasicoEscala: 4200,
     tarifaHoraria: 22.04, // 4200 / 190.6
-    notas: 'Operario de mantenimiento.'
+    notas: 'Baja definitiva por jubilación por edad (C-27).'
   },
   // Trabajadores de otros CC para demostrar Cierre Final multi-CC
   {
