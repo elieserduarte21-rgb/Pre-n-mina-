@@ -92,17 +92,7 @@ export const ControlClavesView: React.FC<ControlClavesViewProps> = ({
   const [newBajaHoras, setNewBajaHoras] = useState<number>(8);
   const [showAddBajaModal, setShowAddBajaModal] = useState<boolean>(false);
 
-  // Estado oficial del modelo del PDF adjunto
-  const [parteCompletamiento, setParteCompletamiento] = useState([
-    { cargo: 'Director de Agencia', real: 1, vacantes: 0, plantilla: 1 },
-    { cargo: 'Subdirector de Agencia', real: 1, vacantes: 0, plantilla: 1 },
-    { cargo: 'Técnico en ATM', real: 1, vacantes: 0, plantilla: 1 },
-    { cargo: 'Técnico A en Gestión de Recursos Humanos', real: 3, vacantes: 0, plantilla: 3 },
-    { cargo: 'Técnico Investigador', real: 1, vacantes: 0, plantilla: 1 },
-    { cargo: 'Jefe de Objetivo', real: 6, vacantes: 0, plantilla: 6 },
-    { cargo: 'Jefe de Turno', real: 22, vacantes: 2, plantilla: 24 },
-    { cargo: 'Agente de Seguridad y Protección', real: 118, vacantes: 0, plantilla: 118 },
-  ]);
+
 
   const [promedioTrabajadoresFechas, setPromedioTrabajadoresFechas] = useState([
     { desde: '01/07/2021', hasta: '09/07/2021', cantidad: 150 },
@@ -132,6 +122,32 @@ export const ControlClavesView: React.FC<ControlClavesViewProps> = ({
   const currentWorkerList = useMemo(() => {
     return scope === 'cc' ? employees : allEmployees;
   }, [scope, employees, allEmployees]);
+
+  // Parte de Completamiento calculado dinámicamente desde la Plantilla en Opciones y la nómina real
+  const parteCompletamiento = useMemo(() => {
+    const configPlantilla = settings.plantillaCargos || [];
+    return configPlantilla.map(p => {
+      const realCount = currentWorkerList.filter(w => 
+        (w.cargo || '').trim().toLowerCase() === p.cargo.trim().toLowerCase()
+      ).length;
+      const plan = p.cantidadPlan;
+      const vacantes = Math.max(0, plan - realCount);
+      return {
+        cargo: p.cargo,
+        real: realCount,
+        vacantes: vacantes,
+        plantilla: plan
+      };
+    });
+  }, [settings.plantillaCargos, currentWorkerList]);
+
+  const parteCompletamientoTotals = useMemo(() => {
+    return parteCompletamiento.reduce((acc, curr) => ({
+      real: acc.real + curr.real,
+      vacantes: acc.vacantes + curr.vacantes,
+      plantilla: acc.plantilla + curr.plantilla
+    }), { real: 0, vacantes: 0, plantilla: 0 });
+  }, [parteCompletamiento]);
 
   // Motivos frecuentes de baja según legislación laboral cubana (Ley 116)
   const motivosFrecuentesBaja = [
@@ -650,9 +666,9 @@ export const ControlClavesView: React.FC<ControlClavesViewProps> = ({
                   ))}
                   <tr className="bg-slate-200/70 font-black text-slate-950 border-t-2 border-slate-300">
                     <td className="py-1.5">Total</td>
-                    <td className="py-1.5 text-center font-mono">153</td>
-                    <td className="py-1.5 text-center font-mono">2</td>
-                    <td className="py-1.5 text-center font-mono">155</td>
+                    <td className="py-1.5 text-center font-mono">{parteCompletamientoTotals.real}</td>
+                    <td className="py-1.5 text-center font-mono">{parteCompletamientoTotals.vacantes}</td>
+                    <td className="py-1.5 text-center font-mono">{parteCompletamientoTotals.plantilla}</td>
                   </tr>
                 </tbody>
               </table>
