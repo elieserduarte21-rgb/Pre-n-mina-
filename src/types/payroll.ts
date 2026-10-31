@@ -86,6 +86,12 @@ export interface EscalaSalarialCargo {
   descripcion?: string;
 }
 
+export interface PlantillaCargoConfig {
+  id: string;
+  cargo: string;
+  cantidadPlan: number;
+}
+
 export interface SeniorityTier {
   id: string;
   minYears: number;
@@ -100,6 +106,7 @@ export interface EmployeePrenomina {
   id: string;
   nombreApellidos: string;
   numeroExpediente?: string; // Número de expediente (Exp.) del trabajador
+  sexo?: 'M' | 'F'; // Sexo del trabajador ('M' = Masculino, 'F' = Femenino)
   cargo?: string;
   catOcupacional: CatOcupacional;
   centroCostoId?: string; // ID del Centro de Costo al que pertenece
@@ -253,6 +260,7 @@ export interface PayrollSettings {
   clavesDeduccion?: ClaveDeduccion[];
   tarifasNocturnidad?: TarifaNocturnidad[];
   clavesActividadesAjenas?: ClaveActividadAjena[];
+  plantillaCargos?: PlantillaCargoConfig[];
 }
 
 // ==========================================

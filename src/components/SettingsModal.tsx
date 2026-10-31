@@ -7,7 +7,8 @@ import {
   ClaveDeduccion, 
   TarifaNocturnidad, 
   ClaveActividadAjena,
-  SeniorityTier
+  SeniorityTier,
+  PlantillaCargoConfig
 } from '../types/payroll';
 import { 
   DEFAULT_PAYROLL_SETTINGS, 
@@ -57,7 +58,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   settings,
   onSave
 }) => {
-  const [activeTab, setActiveTab] = useState<'centrosCosto' | 'escala' | 'deducciones' | 'nocturnidad' | 'activAjenas' | 'tasas' | 'gradosAcademicos' | 'antiguedad'>('deducciones');
+  const [activeTab, setActiveTab] = useState<'centrosCosto' | 'escala' | 'deducciones' | 'nocturnidad' | 'activAjenas' | 'tasas' | 'gradosAcademicos' | 'antiguedad' | 'plantilla'>('plantilla');
 
   const [formData, setFormData] = useState<PayrollSettings>(() => ({
     ...settings,
@@ -85,7 +86,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       : DEFAULT_TARIFAS_NOCTURNIDAD,
     clavesActividadesAjenas: settings.clavesActividadesAjenas && settings.clavesActividadesAjenas.length > 0
       ? settings.clavesActividadesAjenas
-      : DEFAULT_CLAVES_ACTIVIDADES_AJENAS
+      : DEFAULT_CLAVES_ACTIVIDADES_AJENAS,
+    plantillaCargos: settings.plantillaCargos && settings.plantillaCargos.length > 0
+      ? settings.plantillaCargos
+      : [
+          { id: 'pc-1', cargo: 'Director de Agencia', cantidadPlan: 1 },
+          { id: 'pc-2', cargo: 'Subdirector de Agencia', cantidadPlan: 1 },
+          { id: 'pc-3', cargo: 'Técnico en ATM', cantidadPlan: 1 },
+          { id: 'pc-4', cargo: 'Técnico A en Gestión de Recursos Humanos', cantidadPlan: 3 },
+          { id: 'pc-5', cargo: 'Técnico Investigador', cantidadPlan: 1 },
+          { id: 'pc-6', cargo: 'Jefe de Objetivo', cantidadPlan: 6 },
+          { id: 'pc-7', cargo: 'Jefe de Turno', cantidadPlan: 24 },
+          { id: 'pc-8', cargo: 'Agente de Seguridad y Protección', cantidadPlan: 118 },
+        ]
   }));
 
   // Estado para nuevo tramo de antigüedad
@@ -174,7 +187,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     descripcion: ''
   });
 
-  if (!isOpen) return null;
+  // Estado para Plantilla de Cargos
+  const [nuevoPlantillaCargo, setNuevoPlantillaCargo] = useState<{
+    cargo: string;
+    cantidadPlan: number;
+  }>({
+    cargo: '',
+    cantidadPlan: 1
+  });
 
   const divisorLegal = formData.divisorHorasMes || 190.6;
 
@@ -536,6 +556,46 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     });
   };
 
+  // --- MANEJO DE PLANTILLA DE CARGOS ---
+
+  const handleUpdatePlantillaCargo = (id: string, field: 'cargo' | 'cantidadPlan', value: any) => {
+    setFormData((prev: PayrollSettings) => ({
+      ...prev,
+      plantillaCargos: (prev.plantillaCargos || []).map(p =>
+        p.id === id ? { ...p, [field]: value } : p
+      )
+    }));
+  };
+
+  const handleEliminarPlantillaCargo = (id: string) => {
+    if (confirm('¿Desea eliminar este cargo de la plantilla?')) {
+      setFormData((prev: PayrollSettings) => ({
+        ...prev,
+        plantillaCargos: (prev.plantillaCargos || []).filter(p => p.id !== id)
+      }));
+    }
+  };
+
+  const handleAgregarPlantillaCargo = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!nuevoPlantillaCargo.cargo.trim()) {
+      alert('Por favor ingrese el nombre del cargo.');
+      return;
+    }
+    const item: PlantillaCargoConfig = {
+      id: `pc-${Date.now().toString().slice(-4)}`,
+      cargo: nuevoPlantillaCargo.cargo.trim(),
+      cantidadPlan: Math.max(0, parseInt(String(nuevoPlantillaCargo.cantidadPlan)) || 1)
+    };
+    setFormData((prev: PayrollSettings) => ({
+      ...prev,
+      plantillaCargos: [...(prev.plantillaCargos || []), item]
+    }));
+    setNuevoPlantillaCargo({ cargo: '', cantidadPlan: 1 });
+  };
+
+  if (!isOpen) return null;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-5 overflow-y-auto">
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[94vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
@@ -563,6 +623,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         {/* Pestañas de Navegación de Configuración */}
         <div className="flex items-center gap-1 px-6 pt-3 border-b border-slate-200 bg-white text-xs font-medium overflow-x-auto">
+          <button
+            type="button"
+            onClick={() => setActiveTab('plantilla')}
+            className={`pb-2.5 px-3 border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === 'plantilla'
+                ? 'border-slate-900 text-slate-900 font-bold'
+                : 'border-transparent text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            <Briefcase className="w-3.5 h-3.5" />
+            <span>Plantilla ({(formData.plantillaCargos || []).length})</span>
+          </button>
+
           <button
             type="button"
             onClick={() => setActiveTab('deducciones')}
@@ -671,6 +744,103 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         {/* Contenido del Formulario */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-6 text-xs">
           
+          {/* PESTAÑA: PLANTILLA DE CARGOS */}
+          {activeTab === 'plantilla' && (
+            <div className="space-y-5">
+              <div>
+                <h3 className="font-bold text-slate-900 uppercase tracking-wider text-2xs mb-1 flex items-center gap-1.5">
+                  <Briefcase className="w-3.5 h-3.5 text-slate-700" />
+                  Configuración de Plantilla de Cargos y Cantidad Plan
+                </h3>
+                <p className="text-slate-500 text-2xs">
+                  Configure los cargos de la empresa y la cantidad planificada (Plantilla) para el Parte de Completamiento en el Control de Claves.
+                </p>
+              </div>
+
+              {/* Contenedor para añadir nuevo cargo a la plantilla */}
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                <h4 className="font-bold text-slate-800 text-2xs uppercase tracking-wide">Añadir Nuevo Cargo a la Plantilla</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+                  <div className="sm:col-span-2">
+                    <label className="block text-3xs font-bold text-slate-600 mb-1">Nombre del Cargo:</label>
+                    <input
+                      type="text"
+                      value={nuevoPlantillaCargo.cargo}
+                      onChange={e => setNuevoPlantillaCargo({ ...nuevoPlantillaCargo, cargo: e.target.value })}
+                      placeholder="Ej. Técnico Especialista"
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-medium"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-3xs font-bold text-slate-600 mb-1">Cantidad Plan:</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="number"
+                        min="1"
+                        value={nuevoPlantillaCargo.cantidadPlan}
+                        onChange={e => setNuevoPlantillaCargo({ ...nuevoPlantillaCargo, cantidadPlan: parseInt(e.target.value) || 1 })}
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-mono font-bold"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAgregarPlantillaCargo}
+                        className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-lg text-xs transition-colors cursor-pointer shrink-0"
+                      >
+                        + Añadir
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Tabla de Cargos de Plantilla */}
+              <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-slate-100 border-b border-slate-200 text-slate-700 font-semibold text-2xs uppercase">
+                      <th className="py-2.5 px-3">Cargo Oficial</th>
+                      <th className="py-2.5 px-3 w-36 text-center">Cantidad Plan</th>
+                      <th className="py-2.5 px-3 text-center w-16">Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {(formData.plantillaCargos || []).map((item) => (
+                      <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-2 px-3">
+                          <input
+                            type="text"
+                            value={item.cargo}
+                            onChange={e => handleUpdatePlantillaCargo(item.id, 'cargo', e.target.value)}
+                            className="w-full px-2 py-1 font-bold text-slate-800 bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-slate-300 focus:border-slate-800 rounded text-xs"
+                          />
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          <input
+                            type="number"
+                            min="0"
+                            value={item.cantidadPlan}
+                            onChange={e => handleUpdatePlantillaCargo(item.id, 'cantidadPlan', parseInt(e.target.value) || 0)}
+                            className="w-24 px-2 py-1 text-center font-mono font-bold text-slate-900 bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 focus:border-slate-800 rounded text-xs"
+                          />
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleEliminarPlantillaCargo(item.id)}
+                            className="text-slate-400 hover:text-rose-600 p-1 rounded hover:bg-rose-50 transition-colors cursor-pointer"
+                            title="Eliminar cargo de la plantilla"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           {/* PESTAÑA: ESCAQUE DE ANTIGÜEDAD POR AÑOS EN LA EMPRESA */}
           {activeTab === 'antiguedad' && (
             <div className="space-y-5">

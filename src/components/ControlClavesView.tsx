@@ -431,7 +431,8 @@ export const ControlClavesView: React.FC<ControlClavesViewProps> = ({
       impactoNomina: 'Compensación fija adicional por nocturnidad'
     });
 
-    return list;
+    // Ocultar claves que se encuentren en cero (0 horas, 0 importe, 0 afectados) para optimizar espacio
+    return list.filter(item => item.totalHoras > 0 || item.importeEstimado > 0 || item.trabajadoresAfectados > 0);
   }, [currentWorkerList, settings]);
 
   // Claves filtradas por categoría y término de búsqueda
@@ -445,6 +446,26 @@ export const ControlClavesView: React.FC<ControlClavesViewProps> = ({
       return matchesCategory && matchesSearch;
     });
   }, [resumenClaves, activeCategoryFilter, searchTerm]);
+
+  // Manejadores para edición manual del Promedio de Trabajadores por Fechas
+  const handleUpdatePromedioFecha = (index: number, field: 'desde' | 'hasta' | 'cantidad', value: string | number) => {
+    setPromedioTrabajadoresFechas(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+  };
+
+  const handleAddPromedioRow = () => {
+    setPromedioTrabajadoresFechas(prev => [
+      ...prev,
+      { desde: '01/08/2021', hasta: '31/08/2021', cantidad: 150 }
+    ]);
+  };
+
+  const handleRemovePromedioRow = (index: number) => {
+    setPromedioTrabajadoresFechas(prev => prev.filter((_, i) => i !== index));
+  };
 
   // =========================================================================
   // 2. CONTROL DE BAJAS: TRABAJADORES CON CLAVE C-27 EN LA PRENÓMINA
@@ -570,6 +591,14 @@ export const ControlClavesView: React.FC<ControlClavesViewProps> = ({
     return resumenClaves.reduce((acc, c) => acc + c.importeEstimado, 0);
   }, [resumenClaves]);
 
+  const { mujeresCount, hombresCount, porcentajeMujeres } = useMemo(() => {
+    const mujeres = currentWorkerList.filter(w => w.sexo === 'F').length;
+    const hombres = currentWorkerList.filter(w => w.sexo !== 'F').length;
+    const total = currentWorkerList.length;
+    const porc = total > 0 ? ((mujeres / total) * 100).toFixed(1) : '0.0';
+    return { mujeresCount: mujeres, hombresCount: hombres, porcentajeMujeres: porc };
+  }, [currentWorkerList]);
+
   return (
     <div className="space-y-6">
       
@@ -587,7 +616,7 @@ export const ControlClavesView: React.FC<ControlClavesViewProps> = ({
               % Completamiento: {resumenSalarioMeta.porcentajeCompletamiento}%
             </span>
             <span className="px-3 py-1 bg-blue-50 text-blue-900 font-bold rounded-lg border border-blue-200">
-              Hombres en prenóminas: {resumenSalarioMeta.hombresPrenomina} | Mujeres: {resumenSalarioMeta.mujeresPrenomina} (38.6%)
+              Hombres en prenóminas: {hombresCount} | Mujeres: {mujeresCount} ({porcentajeMujeres}%)
             </span>
           </div>
         </div>
@@ -629,8 +658,8 @@ export const ControlClavesView: React.FC<ControlClavesViewProps> = ({
               </table>
             </div>
             <div className="text-3xs text-slate-600 font-medium pt-1 flex justify-between">
-              <span>Total Mujeres: 59 (38.6%)</span>
-              <span>Total Trabajadores: 153 Real / 155 Plantilla</span>
+              <span>Total Mujeres: {mujeresCount} ({porcentajeMujeres}%)</span>
+              <span>Total Trabajadores: {currentWorkerList.length} Real</span>
             </div>
           </div>
 
@@ -655,23 +684,67 @@ export const ControlClavesView: React.FC<ControlClavesViewProps> = ({
               </div>
             </div>
 
-            {/* Promedio de Trabajadores (Fechas y Cantidad) */}
+            {/* Promedio de Trabajadores (Fechas y Cantidad editables manualmente) */}
             <div className="bg-slate-50/70 p-3.5 rounded-xl border border-slate-200 space-y-2">
-              <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wide">Promedio de Trabajadores</h4>
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wide">Promedio de Trabajadores</h4>
+                <button
+                  type="button"
+                  onClick={handleAddPromedioRow}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 text-3xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded transition-colors cursor-pointer"
+                  title="Añadir nuevo rango de fechas"
+                >
+                  <Plus className="w-3 h-3" /> Añadir Rango
+                </button>
+              </div>
               <table className="w-full text-xs text-left">
                 <thead>
                   <tr className="text-slate-500 text-3xs border-b border-slate-200">
                     <th className="py-1">Desde</th>
                     <th className="py-1">Hasta</th>
-                    <th className="py-1 text-right">Cantidad</th>
+                    <th className="py-1 text-center">Cantidad</th>
+                    <th className="py-1 text-center">Acción</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200/60 font-mono text-xs">
                   {promedioTrabajadoresFechas.map((p, idx) => (
                     <tr key={idx} className="hover:bg-slate-100/60">
-                      <td className="py-1 text-slate-800">{p.desde}</td>
-                      <td className="py-1 text-slate-800">{p.hasta}</td>
-                      <td className="py-1 text-right font-bold text-slate-900">{p.cantidad}</td>
+                      <td className="py-1 pr-1">
+                        <input
+                          type="text"
+                          value={p.desde}
+                          onChange={e => handleUpdatePromedioFecha(idx, 'desde', e.target.value)}
+                          className="w-full px-1.5 py-0.5 bg-white border border-slate-300 rounded text-3xs font-mono font-bold text-slate-900"
+                        />
+                      </td>
+                      <td className="py-1 pr-1">
+                        <input
+                          type="text"
+                          value={p.hasta}
+                          onChange={e => handleUpdatePromedioFecha(idx, 'hasta', e.target.value)}
+                          className="w-full px-1.5 py-0.5 bg-white border border-slate-300 rounded text-3xs font-mono font-bold text-slate-900"
+                        />
+                      </td>
+                      <td className="py-1 text-center pr-1 w-16">
+                        <input
+                          type="number"
+                          value={p.cantidad}
+                          onChange={e => handleUpdatePromedioFecha(idx, 'cantidad', parseInt(e.target.value) || 0)}
+                          className="w-full px-1 py-0.5 bg-white border border-slate-300 rounded text-3xs font-mono font-bold text-center text-slate-900"
+                        />
+                      </td>
+                      <td className="py-1 text-center w-8">
+                        {promedioTrabajadoresFechas.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemovePromedioRow(idx)}
+                            className="p-0.5 text-rose-600 hover:text-rose-900 rounded transition-colors cursor-pointer"
+                            title="Eliminar rango"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
